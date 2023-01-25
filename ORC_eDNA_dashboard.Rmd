@@ -1,0 +1,1122 @@
+---
+title: "ORC eDNA dashboard"
+runtime: shiny
+output:
+  flexdashboard::flex_dashboard:
+    navbar:
+      - { title: "reproducible.co.nz", href: "https://reproducible.co.nz", align: right }
+    orientation: rows
+    vertical_layout: fill
+    theme: spacelab
+    source_code: embed 
+---
+<style>
+
+body {
+  padding-top: 70px;
+}
+
+
+.navbar-brand {
+font-family: "Candara";
+  font-weight: bold;
+  font-size: 24px;
+}
+
+
+</style>
+
+
+Sample locations
+=====================================
+
+Column {.sidebar}
+-----------------------------------------------------------------------
+
+**In this dashboard are 4 pages:**
+
+1. **Sample locations**  - which shows all sampling locations
+1. **By taxon** - which allows disaggregation by species/subspecies
+1. **By spatial** - which allows disaggregation by species/subspecies or a specific taxon
+1. **By cluster** - which allows investigation of species/subspecies clusters
+
+
+**Your NZTCS data was last modified on: **
+
+
+```{r}
+library(wilderlab)
+library(insect)
+library(sf)
+library(tidyverse)
+library(lubridate)
+library(leaflet)
+library(shiny)
+library(shinyWidgets)
+library(flexdashboard)
+library(plotly)
+library(viridis)
+library(DT)
+library(readxl)
+library(factoextra)
+library(leaflet.extras)
+library(geojsonsf)
+library(jsonify)
+library(stringr)
+
+
+# read NZTCS data
+nztcs <- read_excel("Data/NZTCS.xlsx")
+
+renderUI({
+  
+  modification.time <- file.info("NZTCS.xlsx")$mtime
+  
+  print(modification.time)
+  
+  
+})
+
+  
+ 
+```
+
+**Please check that is the appropriate version for your analysis**
+
+
+Column {data-width=600}
+-------------------------------------
+### Zoomable map
+
+```{r}
+# APIs
+APIs <- read_excel("Data/API keys.xlsx")
+
+
+# get job info
+
+jobs <- get_wilderdata("jobs", key = APIs$key, secret = APIs$secret, xapikey = APIs$xapikey)
+samples <- get_wilderdata("samples", key = APIs$key, secret = APIs$secret, xapikey = APIs$xapikey)
+taxa <- get_wilderdata("taxa", key = APIs$key, secret = APIs$secret, xapikey = APIs$xapikey)
+
+# get full record
+records <- vector(mode = "list", length = nrow(jobs))
+for(i in seq_along(records)){
+  records[[i]] <- get_wilderdata("records", JobID = jobs$JobID[i],
+                                 key = APIs$key, secret = APIs$secret, xapikey = APIs$xapikey)
+}
+records <- do.call("rbind", records)
+
+
+# add taxa info
+tdb <- taxa[, 1:4]
+colnames(tdb) <- c("taxID", "parent_taxID", "rank", "name")
+lineages <- insect::get_lineage(records$TaxID, tdb)
+
+# add classification
+records$phylum <- sapply(lineages, "[", "phylum")
+records$class <- sapply(lineages, "[", "class")
+records$order <- sapply(lineages, "[", "order")
+records$family <- sapply(lineages, "[", "family")
+records$genus <- sapply(lineages, "[", "genus")
+records$species <- sapply(lineages, "[", "species")
+records$Latitude <- samples$Latitude[match(records$UID,samples$UID)]
+records$Longitude <- samples$Longitude[match(records$UID,samples$UID)]
+records$ClientSampleID <- samples$ClientSampleID[match(records$UID,samples$UID)]
+
+# date join
+date.id <- samples[, c("UID", "CollectionDate")]
+
+# add dates to record
+eDNA <- left_join(records, date.id, by = "UID")
+
+
+```
+
+
+
+
+
+```{r, message = FALSE}
+# read in standardised fmu shapefile (created in eDNA base code)
+fmu <- st_read("Data/FMU_corrected.shp",  quiet = TRUE)
+outer <- st_read("Data/FMU_outer.shp",  quiet = TRUE) # note this is an approximation of Otago boundary
+
+# read in eDNA data (fast)
+eDNA <- eDNA %>% # data provided by Wilderlab
+  janitor::clean_names()
+
+# intersect with freshwater management units
+# this is because data does not match Otago region
+# now 16 secs rather than 145 secs
+eDNA_otago_sf <- eDNA %>%
+  st_as_sf(coords = c("longitude", "latitude"), crs = 4326) %>%
+  st_intersection(outer)
+
+# fix dates
+eDNA_otago_sf$collection_date <- ymd(eDNA_otago_sf$collection_date )
+
+# unique coord
+eDNA_coord <- st_coordinates(eDNA_otago_sf) %>% as.data.frame()
+eDNA_coord$xy <- paste(eDNA_coord$X, eDNA_coord$Y)
+eDNA_otago_sf <- cbind(eDNA_otago_sf, eDNA_coord$xy)
+
+
+# sample locations (fast)
+simple.loc <- eDNA_otago_sf %>%  group_by(eDNA_coord.xy) %>%
+  filter(collection_date == min(collection_date)) %>%
+  slice(1)
+
+# site locations change to spatial
+site.locations <- simple.loc
+
+
+# make base map
+basemap <- leaflet() %>%
+  # add different provider tiles
+  addProviderTiles(
+    "OpenStreetMap",
+    # give the layer a name
+    group = "OpenStreetMap"
+  ) %>%
+  addProviderTiles(
+    "Esri.WorldImagery",
+    # give the layer a name
+    group = "World"
+  )
+
+
+# visualise site locations
+loc.map<- basemap %>%
+  addCircleMarkers(data = site.locations ,
+                   clusterOptions = markerClusterOptions(),
+                   popup = ~client_sample_id)
+
+loc.map
+
+
+
+
+
+```
+
+
+By taxon
+=====================================
+
+Column {.sidebar}
+-----------------------------------------------------------------------
+
+**Filter by taxonomy**
+
+
+
+```{r}
+selectInput(
+  "Classification",
+  label = "Taxonomic group",
+  choices = list(
+    "Phylum" = "phylum",
+    "Class" = "class",
+    "Order" = "order",
+    "Family" = "family",
+    "Genus" = "genus",
+    "Species" = "species"
+  ),
+      selected = "genus"
+)
+
+
+# reactive taxonomic choices
+
+renderUI({
+  my.selection <- eDNA_otago_sf %>% select(input$Classification)
+  st_geometry(my.selection) <- NULL
+  
+  choices <- sort(unique(my.selection[, 1]))
+  
+  selectInput("Taxon",
+              label = str_to_title(input$Classification),
+              choices = sort(unique(choices)),
+              selected = "Galaxias")
+  
+})
+
+
+# reactive species/subspecies choices
+
+my.spp <- reactive({
+  x <- as.character(input$Classification)
+  
+  eDNA_otago_sf %>% filter(eval(str2expression(x)) == input$Taxon)
+  
+})
+
+
+
+
+  
+  
+```
+
+
+**Optional - check distribution**
+
+Choose 1 spatial file which represents existing knowledge of the taxon either:
+
+* points (e.g. established locations)
+* polylines (e.g. occupied river fragments)
+* polygons (e.g. known catchments)
+
+The taxon will be assessed against this and aberrant entries will be flagged
+
+
+```{r}
+# maximum 50 MB
+options(shiny.maxRequestSize=50*1024^2) 
+
+# select provincial boundaries
+boundaries <- st_read("Regional boundaries\\regional-council-2022-generalised.shp", quiet = TRUE)
+
+province.choice <- sort(unique(boundaries$REGC2022_1))
+
+# read Non migratory Freshwater Fish Distribution
+non.mig <- reactive({
+  st_read("Non_migratory_Freshwater_Fish_Distribution.shp", quiet = TRUE) %>% 
+    filter(Species == my.taxon())
+
+})
+
+```
+
+```{r}
+
+conditionalPanel(
+  condition = "input.Classification == 'species'",
+  
+  selectInput("non.mig.fish",
+              label = ("Select Province"),
+              choices = province.choice,
+              selected = "Otago Region")
+  
+  )
+
+
+
+```
+
+
+
+```{r}
+my.taxon <- reactive({
+  
+  x <- as.character(input$Classification)
+  eDNA_otago_sf %>% filter(eval(str2expression(x)) == input$Taxon)
+  
+})
+
+my.coord <- st_coordinates(site.locations) %>%
+     as.data.frame()
+
+my.coord$xy <- paste(my.coord$X, my.coord$Y)
+```
+
+
+
+
+Row {data-height=75}
+-------------------------------------
+
+### Percentage of locations
+```{r}
+
+percentage_of_locations <- reactive({
+   round(length(unique(my.sf.coord()$xy))/
+    length(unique(my.coord$xy)),4)  * 100
+})
+
+
+renderGauge({
+  
+gauge(percentage_of_locations(), min = 0, max = 100,  symbol = '%',
+    gaugeSectors(colors = "#f93b25"))
+})
+```
+
+
+### No. of unique sites
+```{r}
+
+no_of_actual_sites <- reactive({
+  
+  length(unique(my.sf.coord()$xy))
+  
+})
+
+renderValueBox({
+
+  valueBox(no_of_actual_sites(), color = " #7dcea0")
+  
+})
+```
+
+
+
+### No. of unique dates
+```{r}
+
+no_dates <- reactive({
+  
+  length(unique(my.taxon()$collection_date))
+  
+})
+
+renderValueBox({
+  
+  valueBox(no_dates(),  color = "#7fb3d5")
+  
+})
+```
+
+
+Row {.tabset .tabset-fade}
+-------------------------------------
+
+### Zoomable map
+```{r}
+
+renderLeaflet({
+  
+  # visualise site locations
+  
+  loc.map <- basemap %>%
+    addCircleMarkers(
+      data = site.locations,
+      color = "white",
+      fillOpacity = 0.01,
+      radius = 10
+    ) %>%
+    addCircleMarkers(
+      data = my.taxon() ,
+      color = "red",
+      fillOpacity = 0.01,
+      popup = paste(
+        "Date:",
+        my.taxon()$collection_date,
+        "<br>",
+        "Job id:",
+        my.taxon()$job_id,
+        "<br>",
+        "Client:",
+        my.taxon()$client_sample_id,
+        "<br>",
+        "Count:",
+        my.taxon()$count,
+        "<br>",
+        "RID:",
+        my.taxon()$rid,
+        "<br>"
+      )
+    )
+  
+  
+  if (is.null(input$taxon.dis) == FALSE) {
+    
+    # get nearest
+    nearest <- st_nearest_feature(my.taxon(), taxon_dis())
+    
+    # get distance
+    dist <-
+      st_distance(my.taxon(), taxon_dis()[nearest, ], by_element = TRUE)
+    
+    # make line between points and nearest known location via loop
+    my.feature <- list()
+    
+    for (i in 1:nrow(my.taxon())) {
+      my.feature[[i]] <- st_nearest_points(my.taxon()[i, ], taxon_dis()[nearest[i], ]) %>%
+        st_sf()
+    }
+    
+    # nearest jump
+    nearest_jump <- bind_rows(my.feature)
+    nearest_jump <- nearest_jump %>% st_transform(crs = 4326)
+    
+    # my.taxon()$distance <- paste(round(as.numeric(dist) / 1000, 2), "km")
+    
+    
+    loc.map <- loc.map %>%
+      addPolylines(
+        data = taxon_dis(),
+        color = "yellow",
+        fillOpacity = 0.001,
+        weight = 1
+      ) %>%
+      addPolylines(data = nearest_jump,
+               color = "white",
+               weight = 1)
+    
+    
+    loc.map
+    
+  } else {
+    loc.map
+  }
+  
+  
+  
+  
+  
+  
+  
+})
+```
+
+### NZTCS data
+
+```{r}
+
+sp.info <- reactive({
+  
+  
+  if(input$Classification != "species"){
+    
+    data.frame(Information = paste("Only available for species, not ", 
+                                   input$Classification))
+    
+  } else {
+  
+  
+  
+  if (any(nztcs$`Current Species Name` == input$Taxon)){
+  
+  sp.info <- nztcs %>% filter(`Current Species Name` ==
+                                input$Taxon)
+  sp.info <- sp.info[, 1:41]
+  sp.info <- t(sp.info) %>% as.data.frame()
+  
+  sp.info <- sp.info %>% rownames_to_column()
+  colnames(sp.info) <- c("Attribute", "Status")
+  
+  sp.info} else {
+    
+    empty <- data.frame(Species = input$Taxon, Status = "Is either not present in the NZTCS or appears under a different name")
+    empty
+  }
+    
+  }
+  
+})
+
+
+
+renderDataTable({
+  
+  
+  datatable(
+    sp.info(),
+    rownames = FALSE,
+    options = list(
+      filter = "none",
+      scrollY = "500px",
+      "pageLength" = 42,
+      searching = FALSE,
+      dom = "t",
+      info = FALSE
+    )
+  )
+  
+  
+}, fillContainer = TRUE) 
+  
+
+
+
+```
+
+### Sample data
+
+
+```{r}
+
+renderDataTable({
+  
+    temp <- my.taxon()
+    my.coord <- st_coordinates(temp)
+    st_geometry(temp) <- NULL
+    my.species.coord <- cbind(temp, my.coord) %>% 
+      rename(lat = Y, long = X)
+
+  
+    datatable(my.species.coord, 
+                  options = list(filter = "none",
+                  scroll = TRUE, "pageLength" = 8))
+
+  
+    
+})
+
+```
+
+### Meta data
+
+
+```{r}
+
+
+
+# reactive elements
+my.sf.coord <- reactive({
+  
+  my.sf.coord <- st_coordinates(my.taxon()) %>%
+     as.data.frame()
+  my.sf.coord$xy <- paste(my.sf.coord$X, my.sf.coord$Y)
+  my.sf.coord
+  
+})
+   
+   
+
+renderPrint({
+  
+
+  
+list(
+    species = input$Taxon,
+    `no of dates` = no_dates(),
+    dates = unique(my.taxon()$collection_date),
+    `no. of site sample names (note: not standardised, synonyms possible)`= length(unique(my.taxon()$client_sample_id)),
+    `site / client id names` = unique(my.taxon()$client_sample_id),
+    `no. of actual sites with species detected` = no_of_actual_sites(),
+    `total sampling locations` = length(unique(my.coord$xy)),
+    `percentage of sampling locations` = percentage_of_locations() 
+    
+  )
+  
+})
+
+    
+
+# percentage.records <- nrow(my.species())/ nrow(eDNA_otago_sf) * 100
+
+```
+
+
+By spatial
+=====================================
+
+Column {.sidebar}
+-----------------------------------------------------------------------
+
+**Options**
+
+You can either:
+
+1. Upload a predefined shapefile or kml file
+2. Select an area either square, circular, or a polygon on the fly
+
+The eDNA data will extracted for your selected area.
+
+**Please select**
+
+```{r}
+radioButtons(
+  "choice",
+  label = "One of:",
+  choices = list("upload spatial file" = "upload", "draw now" = "draw"),
+  selected = "draw"
+)
+
+
+conditionalPanel(
+  condition = "input.choice == 'upload'",
+  
+  fileInput("file1", "Choose Shape File",
+                    multiple = FALSE),
+  
+  )
+
+
+
+```
+
+```{r}
+# reactive data from maps
+
+dataset <- eventReactive(input$file1,{
+  
+  dataset <- st_read(input$file1$datapath, quiet = TRUE)
+
+})
+
+
+# selction from drawing
+sp.file <- eventReactive(input$mymap_draw_new_feature,{
+  
+    feature <- input$mymap_draw_new_feature
+    
+    sp.file <-  geojson_sf(to_json(feature, unbox = TRUE)) %>%
+      st_as_sf()
+    
+    sp.file
+     
+  })
+
+```
+
+
+```{r}
+
+renderUI({
+  
+  # round to nearest 10
+  nearest <- 10
+  my.max <- ceiling(nrow(all.selection())/nearest)*nearest
+  
+  sliderInput("entries", "Number of entries to graph:",
+            min = 10, max = my.max, value = 50, step = 10, ticks = FALSE)
+  
+})
+
+renderUI({
+  
+  spp <- nrow(all.selection())
+  paste("Total taxa present: ", spp)
+
+
+})
+
+```
+
+*Note: When drawing a new polygon please allow a short period of time for the plot to render using the new data.*
+
+**Download filtered data**
+
+```{r}
+# Create placeholder for the download button
+uiOutput("downloadUI")
+```
+
+```{r, echo = FALSE}
+output$downloadUI <- renderUI( {
+  downloadButton("downBtn", "Download csv data", style = "width:100%;")
+})
+
+output$downBtn <- downloadHandler(
+  filename = function() {'Name your file.csv'},
+  content = function(file) {
+    write.csv(final(), file, row.names = FALSE)
+  }
+)
+```
+
+**Download shapefile**
+
+```{r}
+# Create placeholder for the download button
+uiOutput("downloadUIsp")
+```
+
+```{r, echo = FALSE}
+output$downloadUIsp <- renderUI( {
+  downloadButton("downBtnsp", "Download shapefile", style = "width:100%;")
+})
+
+output$downBtnsp <- downloadHandler(
+  filename = function() {'Name your file.csv'},
+  content = function(file) {
+    write.csv(final(), file, row.names = FALSE)
+  }
+)
+```
+
+
+Row {.tabset .tabset-fade}
+-------------------------------------
+
+### Zoomable map
+
+
+```{r}
+my.selection <- reactive({
+  
+  if (input$choice == "upload") {
+    
+    eDNA_otago_sf %>%
+      st_as_sf(coords = c("longitude", "latitude"),
+               crs = 4326) %>%
+      st_intersection(dataset())
+    
+  } else {
+    
+    if (sp.file()$feature_type == "circle") {
+      
+      my.circle <- st_buffer(sp.file(), sp.file()$radius) 
+      
+      eDNA_otago_sf %>%
+        st_as_sf(coords = c("longitude", "latitude"),
+                 crs = 4326) %>%
+        st_intersection(my.circle)
+      
+    } else {
+      
+      eDNA_otago_sf %>%
+        st_as_sf(coords = c("longitude", "latitude"),
+                 crs = 4326) %>%
+        st_intersection(sp.file())
+      
+    }
+  }
+
+})
+
+```
+
+```{r}
+
+
+leafletOutput("mymap", height = 800)
+
+output$mymap <- renderLeaflet({
+  
+  if (input$choice == "upload") {
+    
+    site.polygon <- dataset() %>% st_zm()
+    
+    new.map <- basemap %>%
+      addCircleMarkers(
+        data = my.selection() ,
+        clusterOptions = markerClusterOptions(),
+        popup = ~ client_sample_id
+      ) %>%
+      addPolygons(data = site.polygon, color = "white") 
+    
+
+    
+  } else {
+    
+    leaflet() %>%
+      
+      # add base maps
+      addProviderTiles("OpenStreetMap",
+                       # give the layer a name
+                       group = "Open Street Map") %>%
+      addProviderTiles("Esri.WorldImagery",
+                       # give the layer a name
+                       group = "World") %>%
+      addProviderTiles("Stamen.Terrain",
+                       # give the layer a name
+                       group = "Terrain") %>%
+      
+      # set zoom and position
+      setView(lng = 169,
+              lat = -45.9,
+              zoom = 8) %>%
+      
+      # add drawing tools
+      addDrawToolbar(
+        polylineOptions = FALSE,
+        markerOptions = FALSE,
+        circleMarkerOptions = FALSE,
+        singleFeature = TRUE,
+        
+        
+        targetGroup = 'draw',
+        editOptions = editToolbarOptions(edit = FALSE, remove = TRUE)
+      )  %>%
+      
+      # add layers
+      addLayersControl(overlayGroups = c('draw'),
+                       options =
+                         layersControlOptions(collapsed = FALSE)) %>%
+      
+      addLayersControl(
+        baseGroups = c("World", "Terrain", "Open Street Map"),
+        # position it on the topleft
+        position = "topleft"
+      ) %>%
+      
+      addMarkers(data = site.locations)
+    
+  }
+  
+})
+
+
+```
+
+### Taxa present
+```{r}
+all.selection <- reactive({
+  
+  my.table <- my.selection() %>% 
+    filter(rank == "species" |rank == "subspecies") %>% 
+    group_by(name)  %>%
+    summarise(instances = n(),
+              `average count` = round(mean(count),1),
+              `range` = paste(min(count),"–", max(count) )
+              ) 
+  
+  st_geometry(my.table) <- NULL
+  my.table
+  
+})
+```
+
+
+```{r}
+selection <- reactive({
+  
+    selection <- all.selection() %>% 
+      slice_max(instances, n = input$entries) 
+  
+    selection$name <- as.factor(selection$name)
+    selection <- selection %>% mutate(name, name = fct_reorder(name, -instances))
+    selection
+  
+})
+
+
+
+renderPlotly({
+
+  
+
+  ggplot(selection(), aes(x = name ,
+      y = instances,
+      fill = `average count`,
+      text = paste("range:", range))) +
+    theme_minimal() +
+    geom_col() +
+    scale_fill_viridis(option = "plasma") +
+    xlab("") +
+    ylab("Instances\n") +
+    ggtitle("Taxon present in spatial selection") +
+    theme(axis.title = element_text(size = 16, colour = "grey20")) +
+    theme(axis.text.x = element_text(
+      size = 12,
+      colour = "grey20",
+      angle = 90,
+      hjust = 1,
+      vjust = 0.5
+    ))
+  
+})
+```
+
+### Data
+
+```{r}
+renderDataTable({
+  
+    datatable(all.selection(), 
+                  options = list(filter = "none",
+                  scrollX = TRUE, "pageLength" = 15))
+    
+})
+
+```
+
+
+### Area
+
+```{r}
+renderUI({
+  
+  if(sp.file()$feature_type == "circle"){
+    
+   area <- st_buffer(sp.file(), sp.file()$radius) %>% st_area()
+    
+  } else {
+    
+   area <- sp.file() %>% st_area()
+     
+  }
+  
+  
+  line1 <- paste("area (sq m) =",  round(area,2))
+  line2 <-paste("area (ha) =",  round(area/10000,2))
+  line3 <-paste("area (km) =",  round(area/1000000,2))
+  
+  HTML(paste(line1, line2, line3, sep = '<br/>'))
+
+  
+})
+    
+```
+
+### Testing
+
+```{r}
+renderPrint({
+  
+  all.selection()
+  
+
+      
+
+})
+```
+
+
+By cluster
+=====================================
+
+Column {.sidebar}
+-----------------------------------------------------------------------
+
+**Number of clusters**
+
+
+```{r}
+sliderInput("cluster", label = "No. of clusters", min = 2, 
+        max = 10, value = 2, step = 1)
+```
+
+Row {.tabset .tabset-fade}
+-------------------------------------
+### Dendrogram
+
+```{r}
+my.clust <- reactive ({
+  # simplifed data
+  my.dna <- eDNA %>% filter(rank == "species" |
+                                rank == "subspecies" )
+  
+  my.dna <- my.dna[, c("name", "latitude", "longitude", "uid")]
+  
+  # make future rowname
+  my.dna$longlat <- paste(my.dna$longitude, my.dna$latitude)
+  
+  # add count
+  my.dna$count <- 1
+  
+  # group and summarise
+  my.dnax <- my.dna  %>% group_by(longlat,  name) %>%
+    summarise(presence = sum(count))
+  
+  # reduce so row number is correct
+  my.dnax$presence <- ifelse(my.dnax$presence > 1, 1, 1)
+  
+  # pivot wider
+  my.dnax <- my.dnax %>% pivot_wider(names_from = name,
+                                     values_from = presence) %>% as.data.frame()
+  
+  # make row names
+  rownames(my.dnax) <- paste0(my.dnax$longlat)
+  
+  # remove unnecessary columns
+  my.dnax$longlat <- NULL
+  my.dnax$uid <- NULL
+  
+  # change NAs to 0
+  my.dnax[is.na(my.dnax)] <- 0
+  
+
+  # hierarchical clustering
+  my.clust <-  my.dnax %>%
+    dist(method = "euclidean") %>%
+    hclust(method = "ward.D")
+  
+  my.clust
+  
+})
+  
+  
+# graph
+
+renderPlot({
+  
+  fviz_dend(my.clust(), k=input$cluster)
+  
+})
+
+
+```
+
+### Map
+
+```{r}
+
+renderLeaflet({
+  
+  my.dna <- eDNA[, c("name", "latitude", "longitude", "uid")]
+  
+  # make future rowname
+  my.dna$longlat <- paste(my.dna$longitude, my.dna$latitude)
+  
+  # add count
+  my.dna$count <- 1
+  
+  # group and summarise
+  my.dnax <- my.dna  %>% group_by(longlat,  name) %>%
+    summarise(presence = sum(count))
+  
+  # reduce so row number is correct
+  my.dnax$presence <- ifelse(my.dnax$presence > 1, 1, 1)
+  
+  # pivot wider
+  my.dnax <- my.dnax %>% pivot_wider(names_from = name,
+                                     values_from = presence) %>% as.data.frame()
+  
+  # make row names
+  rownames(my.dnax) <- paste0(my.dnax$longlat)
+  
+  # remove unnecessary columns
+  my.dnax$longlat <- NULL
+  my.dnax$uid <- NULL
+  
+  # change NAs to 0
+  my.dnax[is.na(my.dnax)] <- 0
+  
+  
+  clust.map <- my.dnax
+  
+  # assign cluster
+  my.clust <-  my.dnax %>%
+    dist(method = "euclidean") %>%
+    hclust(method = "ward.D")
+  
+  clust.map$groups <- as.factor(cutree(my.clust, k = input$cluster))
+  
+  # simplify and back calculate row names
+  clust.map$longlat <- rownames(clust.map)
+  clust.map <- clust.map[, c("groups", "longlat")]
+  
+  clust.map <-
+    clust.map %>% separate(longlat, c("longitude", "latitude"),  sep = " ")
+  
+  clust.map <- st_as_sf(clust.map,
+               coords = c("longitude", "latitude"),
+               crs = 4326)
+
+  clust.map <- as_Spatial(clust.map)
+  
+  # make base map
+  basemap <- leaflet() %>%
+    addProviderTiles("Esri.WorldImagery",
+                     group = "World")
+  
+  beatCol <- colorFactor(palette = 'RdYlGn', clust.map$groups)
+  
+  
+  # visualise site locations
+  loc.map <- basemap %>%
+    addCircleMarkers(data = clust.map, color = ~ beatCol(groups))
+  
+  loc.map
+  
+  
+  
+  
+})
+```
+
+### Check
+
+```{r}
+renderPrint({
+  
+  is.null(input$taxon.dis)
+})
+```
+
