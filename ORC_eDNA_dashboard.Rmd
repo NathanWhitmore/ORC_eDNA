@@ -282,24 +282,44 @@ province.choice <- sort(unique(boundaries$REGC2022_1))
 
 # read Non migratory Freshwater Fish Distribution
 non.mig <- reactive({
-  st_read("Non_migratory_Freshwater_Fish_Distribution.shp", quiet = TRUE) %>% 
-    filter(Species == my.taxon())
+  st_read("Non-migratory_Freshwater_Fish_Distribution/Non_migratory_Freshwater_Fish_Distribution.shp", quiet = TRUE) %>% 
+    filter(Species == "Galaxias anomalus") %>% st_transform(crs = 4326)
 
 })
 
+
+
 ```
 
+
+**Clip by province**
+
 ```{r}
+# only reveal if "species" selected
 
 conditionalPanel(
   condition = "input.Classification == 'species'",
   
-  selectInput("non.mig.fish",
-              label = ("Select Province"),
+  selectInput("province",
+              label = "Select Province",
               choices = province.choice,
               selected = "Otago Region")
   
   )
+
+
+# crop to catchment (actually crop) to create usable subset
+my.catchment <- reactive({
+  
+  boundaries %>% filter(boundaries$REGC2022_1 == input$province)
+  
+})
+
+my.subset <- reactive({
+  
+  st_crop(non.mig(), my.catchment)
+  
+})
 
 
 
@@ -382,20 +402,18 @@ renderValueBox({
 Row {.tabset .tabset-fade}
 -------------------------------------
 
-### Zoomable map
+### Presence / absence
+
+
 ```{r}
 
-renderLeaflet({
+
+loc.map <- reactive({
+  
   
   # visualise site locations
   
   loc.map <- basemap %>%
-    addCircleMarkers(
-      data = site.locations,
-      color = "white",
-      fillOpacity = 0.01,
-      radius = 10
-    ) %>%
     addCircleMarkers(
       data = my.taxon() ,
       color = "red",
@@ -419,57 +437,80 @@ renderLeaflet({
       )
     )
   
+})
   
-  if (is.null(input$taxon.dis) == FALSE) {
+
+```
+
+
+
+```{r}
+renderLeaflet({
+  
+  loc.map() %>%   
+    addCircleMarkers(
+      data = site.locations,
+      color = "white",
+      fillOpacity = 0.01,
+      radius = 10
+    ) 
+  
+})
+```
+
+### Possible discrepancies (species only)
+
+```{r}
+renderLeaflet({
+  
+  
+    if (input$Classification == 'species') {
     
+  
     # get nearest
-    nearest <- st_nearest_feature(my.taxon(), taxon_dis())
-    
-    # get distance
-    dist <-
-      st_distance(my.taxon(), taxon_dis()[nearest, ], by_element = TRUE)
-    
-    # make line between points and nearest known location via loop
-    my.feature <- list()
-    
-    for (i in 1:nrow(my.taxon())) {
-      my.feature[[i]] <- st_nearest_points(my.taxon()[i, ], taxon_dis()[nearest[i], ]) %>%
-        st_sf()
-    }
-    
-    # nearest jump
-    nearest_jump <- bind_rows(my.feature)
-    nearest_jump <- nearest_jump %>% st_transform(crs = 4326)
-    
-    # my.taxon()$distance <- paste(round(as.numeric(dist) / 1000, 2), "km")
-    
-    
-    loc.map <- loc.map %>%
-      addPolylines(
-        data = taxon_dis(),
-        color = "yellow",
-        fillOpacity = 0.001,
-        weight = 1
-      ) %>%
-      addPolylines(data = nearest_jump,
-               color = "white",
-               weight = 1)
-    
-    
-    loc.map
-    
-  } else {
-    loc.map
+  nearest <- st_nearest_feature(my.taxon(), non.mig())
+  
+  # get distance
+  dist <-
+    st_distance(my.taxon(), non.mig()[nearest, ], by_element = TRUE)
+  
+  # make line between points and nearest known location via loop
+  my.feature <- list()
+  
+  for (i in 1:nrow(my.taxon())) {
+    my.feature[[i]] <-
+      st_nearest_points(my.taxon()[i,], non.mig()[nearest[i],]) %>%
+      st_sf()
   }
   
   
+  # nearest jump
+  nearest_jump <- bind_rows(my.feature)
   
+  
+     loc.map() %>%
+      addPolylines(data = nearest_jump,
+               color = "white") %>%
+      addPolylines(data = non.mig(),
+               color = "yellow",
+               weight = 3)
+     
+ 
+    
+  
+    
+  } else {
+    
+    loc.map()
+  }
   
   
   
   
 })
 ```
+
+
 
 ### NZTCS data
 
@@ -1111,12 +1152,5 @@ renderLeaflet({
 })
 ```
 
-### Check
 
-```{r}
-renderPrint({
-  
-  is.null(input$taxon.dis)
-})
-```
 
