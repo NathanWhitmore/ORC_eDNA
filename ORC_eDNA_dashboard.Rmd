@@ -282,8 +282,8 @@ province.choice <- sort(unique(boundaries$REGC2022_1))
 
 # read Non migratory Freshwater Fish Distribution
 non.mig <- reactive({
-  st_read("Non-migratory_Freshwater_Fish_Distribution/Non_migratory_Freshwater_Fish_Distribution.shp", quiet = TRUE) %>% 
-    filter(Species == input$Taxon) %>% st_transform(crs = 4326)
+  st_read("Non-migratory_Freshwater_Fish_Distribution/Non_migratory_Freshwater_Fish_Distribution.shp", quiet = TRUE) %>% st_transform(crs = 4326)
+ # %>%    filter(Species == input$Taxon) 
 
 })
 
@@ -1129,62 +1129,175 @@ radioButtons(
 ```
 
 
+**Your eDNA record is of:**
+
+```{r}
+renderUI({
+  
+  input$Taxon
+  
+})
+```
+
+
+**Compared against the known locations of:**
+
+```{r}
+# reactive drop down menu from nmfish
+
+  
+renderUI({
+  
+  nmfish <- non.mig()
+  
+  st_geometry(nmfish) <- NULL
+  
+  non.mig.choices <- sort(unique(nmfish[, 3]))
+  
+  selectInput("non.mig.sp",
+              label = "",
+              choices = non.mig.choices)
+  
+})
+
+
+
+
+```
+
+
+```{r, echo = FALSE}
+output$downloadUI <- renderUI( {
+  downloadButton("downBtn", "Download csv data", style = "width:100%;")
+})
+
+output$downBtn <- downloadHandler(
+  filename = function() {'Name your file.csv'},
+  content = function(file) {
+    write.csv(final(), file, row.names = FALSE)
+  }
+)
+```
+
+**Threshold for aberrant result**
+```{r}
+numericInput("abberant", label = "Distance (m)", value = 1000)
+```
+
+**Write note for csv file**
+```{r}
+textInput("notes", label = "", value = "Enter text...")
+```
+
+
+**Download csv of aberrant entries**
+
+```{r}
+# Create placeholder for the download button
+uiOutput("downloadfish")
+```
+
+```{r, echo = FALSE}
+output$downloadfish <- renderUI( {
+  downloadButton("downBtnfish", "Download csv", style = "width:100%;")
+})
+
+output$downBtnfish <- downloadHandler(
+  filename = function() {'Name your file.csv'},
+  content = function(file) {
+    write.csv(, file, row.names = FALSE)
+  }
+)
+```
+
+
+
 Column {data-width=600}
 -------------------------------------
+
+
 
 ### Zoomable map
 
 ```{r}
 
 
+
 renderLeaflet({
   
-  
-    if (input$Classification == 'species') {
-    
+  non.mig.sp <- non.mig() %>% filter(Species == input$non.mig.sp)
   
     # get nearest
-  nearest <- st_nearest_feature(my.taxon(), non.mig())
-  
-  # get distance
-  dist <-
-    st_distance(my.taxon(), non.mig()[nearest, ], by_element = TRUE)
-  
-  # make line between points and nearest known location via loop
-  my.feature <- list()
-  
-  for (i in 1:nrow(my.taxon())) {
-    my.feature[[i]] <-
-      st_nearest_points(my.taxon()[i,], non.mig()[nearest[i],]) %>%
-      st_sf()
-  }
-  
-  
-  # nearest jump
-  nearest_jump <- bind_rows(my.feature)
-  
-  
-     loc.map() %>%
+    nearest <- st_nearest_feature(my.taxon(), non.mig.sp)
+    
+    # get distance
+    dist <-
+      st_distance(my.taxon(), non.mig.sp[nearest,], by_element = TRUE)
+    
+    # make line between points and nearest known location via loop
+    my.feature <- list()
+    
+    for (i in 1:nrow(my.taxon())) {
+      my.feature[[i]] <-
+        st_nearest_points(my.taxon()[i, ], non.mig.sp[nearest[i], ]) %>%
+        st_sf()
+    }
+    
+    
+    # nearest jump
+    nearest_jump <- bind_rows(my.feature)
+    
+    
+    loc.map() %>%
       addPolylines(data = nearest_jump,
-               color = "white") %>%
-      addPolylines(data = non.mig(),
-               color = "yellow",
-               weight = 3)
-     
- 
+                   color = "white") %>%
+      addPolylines(data = non.mig.sp ,
+                   color = "yellow",
+                   weight = 3)
     
-  
-    
-  } else {
-    
-    loc.map()
-  }
-  
-  
-  
-  
 })
 ```
 
 
+Discrepancy check
+=====================================
+
+
+```{r}
+renderPrint({
+
+   non.mig.sp <- non.mig() %>% filter(Species == input$non.mig.sp)
+  
+    # get nearest
+    nearest <- st_nearest_feature(my.taxon(), non.mig.sp)
+    
+    # get distance
+    dist <-
+      st_distance(my.taxon(), non.mig.sp[nearest,], by_element = TRUE)
+    
+    # assemble into data frame
+    aberrant <- my.taxon()
+    
+    # remove unnecessary columns
+    aberrant <- aberrant[,1:16]
+    
+    # distace
+    aberrant$dist <- as.numeric(dist)
+    
+    # filter by distance
+    aberrant <- aberrant %>% filter(dist >= input$abberant)
+    
+    # add notes
+    aberrant$notes <- input$notes
+    
+    # return
+    aberrant
+    
+    
+    
+   
+    
+})
+
+```
 
