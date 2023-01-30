@@ -201,7 +201,7 @@ loc.map
 ```
 
 
-By taxon
+By classification
 =====================================
 
 Column {.sidebar}
@@ -282,7 +282,7 @@ province.choice <- sort(unique(boundaries$REGC2022_1))
 
 # read Non migratory Freshwater Fish Distribution
 non.mig <- reactive({
-  st_read("Non-migratory_Freshwater_Fish_Distribution/Non_migratory_Freshwater_Fish_Distribution.shp", quiet = TRUE) %>% st_transform(crs = 4326)
+  st_read("Non-migratory_Freshwater_Fish_Distribution/Non_migratory_Freshwater_Fish_Distribution.shp", quiet = TRUE) %>%  st_transform(crs = 4326)
  # %>%    filter(Species == input$Taxon) 
 
 })
@@ -1104,7 +1104,7 @@ renderLeaflet({
 ```
 
 
-Discrepancy check
+Test existing knowledge
 =====================================
 
 Column {.sidebar}
@@ -1122,7 +1122,7 @@ radioButtons(
   choices = list("Single species polyline" = "polyline", 
                  "Single species polygon" = "polygon",
                  "Non migratory freshwater fish distribution" = "nmfish"),
-  selected = "nfish"
+  selected = "nmfish"
 )
 
 
@@ -1181,7 +1181,7 @@ output$downBtn <- downloadHandler(
 
 **Threshold for aberrant result**
 ```{r}
-numericInput("abberant", label = "Distance (m)", value = 1000)
+numericInput("aberrant", label = "Distance (nearest m)", value = 1000)
 ```
 
 **Write note for csv file**
@@ -1203,16 +1203,19 @@ output$downloadfish <- renderUI( {
 })
 
 output$downBtnfish <- downloadHandler(
-  filename = function() {'Name your file.csv'},
+  filename = function() { paste0("edna-", input$Taxon, " vs ", 
+                                 "target-", input$non.mig.sp, " ",
+                                 "threshold-", input$aberrant,"m",".csv")},
   content = function(file) {
-    write.csv(, file, row.names = FALSE)
+    write.csv(aberrant(), file, row.names = FALSE)
   }
 )
 ```
 
 
 
-Column {data-width=600}
+
+Row {.tabset .tabset-fade}
 -------------------------------------
 
 
@@ -1225,7 +1228,7 @@ Column {data-width=600}
 
 renderLeaflet({
   
-  non.mig.sp <- non.mig() %>% filter(Species == input$non.mig.sp)
+  non.mig.sp <- non.mig() %>% filter(Species == input$non.mig.sp) %>% st_make_valid()
   
     # get nearest
     nearest <- st_nearest_feature(my.taxon(), non.mig.sp)
@@ -1243,14 +1246,14 @@ renderLeaflet({
         st_sf()
     }
     
-    
     # nearest jump
     nearest_jump <- bind_rows(my.feature)
     
     
     loc.map() %>%
       addPolylines(data = nearest_jump,
-                   color = "white") %>%
+                   color = "white",
+                   weight = 2) %>%
       addPolylines(data = non.mig.sp ,
                    color = "yellow",
                    weight = 3)
@@ -1259,14 +1262,15 @@ renderLeaflet({
 ```
 
 
-Discrepancy check
-=====================================
+
+
+
 
 
 ```{r}
-renderPrint({
+aberrant <- reactive({
 
-   non.mig.sp <- non.mig() %>% filter(Species == input$non.mig.sp)
+   non.mig.sp <- non.mig() %>% filter(Species == input$non.mig.sp) %>% st_make_valid()
   
     # get nearest
     nearest <- st_nearest_feature(my.taxon(), non.mig.sp)
@@ -1285,19 +1289,87 @@ renderPrint({
     aberrant$dist <- as.numeric(dist)
     
     # filter by distance
-    aberrant <- aberrant %>% filter(dist >= input$abberant)
+    aberrant <- aberrant %>% filter(dist >= input$aberrant)
     
     # add notes
     aberrant$notes <- input$notes
     
     # return
     aberrant
-    
-    
-    
-   
-    
+
 })
 
 ```
+
+
+### Sample data
+
+```{r}
+
+aberrant <- reactive({
+  
+ 
+   non.mig.sp <- non.mig() %>% filter(Species == input$non.mig.sp) %>% st_make_valid()
+  
+    # get nearest
+    nearest <- st_nearest_feature(my.taxon(), non.mig.sp)
+    
+    # get distance
+    dist.m <-
+      st_distance(my.taxon(), non.mig.sp[nearest,], by_element = TRUE)
+    dist.m <- round(dist.m, 0)
+    
+    # assemble into data frame
+    aberrant <- my.taxon()
+    
+    # remove unnecessary columns
+    aberrant <- aberrant[,1:16]
+    
+    # distance
+    aberrant$dist.m <- as.numeric(dist.m)
+    
+    # long lat
+    longlat <- st_coordinates(aberrant) %>% as.data.frame()
+    longlat <- longlat %>% rename(lat = Y, long = X)
+    
+    # remove coordinates
+    st_geometry(aberrant) <- NULL
+    
+    # join
+    aberrant <- cbind(aberrant, longlat)
+    
+    # add notes
+    aberrant$notes  <- ifelse(aberrant$dist.m >= input$aberrant, input$notes, NA)
+    
+    # filter by distance
+    aberrant <- aberrant %>% filter(dist.m >= input$aberrant)
+    
+    # return
+    aberrant 
+
+  
+})
+
+
+renderDataTable({
+  
+  if (nrow(aberrant()) > 1){
+    
+   my.aberrant <- aberrant()[, -c(1:4)]
+    
+        datatable(my.aberrant, 
+                  options = list(filter = "none",
+                  scroll = TRUE, "pageLength" = 8))
+    
+  } else {
+    
+    data.frame(Notes = paste0("No aberrant records at a threshold of ", input$aberrant, "m"))
+    
+  }
+})
+    
+
+
+```
+
 
