@@ -255,8 +255,7 @@ my.spp <- reactive({
 
 
 
-# add sunit button
-actionButton("submit", label = "Submit")
+
 
 ```
 
@@ -1143,6 +1142,9 @@ renderUI({
 })
 ```
 
+
+
+
 ```{r}
 # my.shape determined by user selection
 
@@ -1193,9 +1195,11 @@ my.shape <- reactive({
 
 
 ```{r}
-
 # my.polygon conditional selections
+# conditional on submit
+
 polygon.choices <- reactive({
+                         
   if (input$spatialfile == "polygon") {
     polyfish <- my.shape()
     st_geometry(polyfish) <- NULL
@@ -1227,14 +1231,11 @@ renderUI({
 
 # nmfish conditional selections
 non.mig.choices <- reactive({
+                         
   if (input$spatialfile == "nmfish") {
     nmfish <- my.shape()
     st_geometry(nmfish) <- NULL
     non.mig.choices <- sort(unique(nmfish[, 3]))
-    non.mig.choices
-    
-  } else {
-    non.mig.choices <- NULL
     non.mig.choices
   }
 })
@@ -1267,6 +1268,14 @@ renderUI({
 textInput("notes", label = "", value = "Enter text...")
 ```
 
+<br/>
+
+```{r}
+# add submit button
+actionButton("submit", label = "Activate")
+```
+
+<br/>
 
 **Download csv of aberrant entries**
 
@@ -1303,7 +1312,9 @@ Row {.tabset .tabset-fade}
 ```{r}
 
 
-renderLeaflet({
+my.map <- eventReactive(input$submit,
+                       {
+  
   if (input$spatialfile == "nmfish") {
     
     non.mig.sp <-
@@ -1372,6 +1383,14 @@ renderLeaflet({
   }
   
 })
+
+
+renderLeaflet ({
+  
+  my.map()
+  
+  
+})
 ```
 
 
@@ -1437,6 +1456,7 @@ aberrant <- reactive({
    
    aberrant <- NULL
    aberrant
+   
  }
 
   
@@ -1465,3 +1485,54 @@ renderDataTable({
 
 ```
 
+
+### File check
+
+Files present:
+
+```{r}
+
+renderPrint({
+  
+      A <- list.files(paste0(getwd(), "/Your Species Polylines"))
+    
+    if (identical(A, character(0)) == TRUE) {
+      
+      your_polylines ="No files are present. If using this option please copy file(s) into: 'Your Species Polylines'"
+      
+    } else {
+      
+      your_polylines = A 
+    }
+      
+      
+          B <- list.files(paste0(getwd(), "/Your Species Polygons"))
+    
+    if (identical(B, character(0)) == TRUE) {
+      your_polygons = "No files are present. If using this option please copy file(s) into: 'Your Species Polygons'"
+      
+    } else {
+      your_polygons = B
+    }
+    
+
+    C <- list.files(paste0(getwd(), "/Your Non-Migratory Freshwater Fish Distribution"))
+    
+    if (identical(C, character(0)) == TRUE) {
+      
+      your_fish = "No files are present. If using this option please copy file(s) into: 'Your Non-Migratory Freshwater Fish Distribution"
+      
+    } else {
+      
+     your_fish = C
+    }
+    
+
+    list("Polyline check" = your_polylines, 
+         "Polygon check" = your_polygons, 
+         "Non-migratory fish check" = your_fish)
+  
+})  
+  
+
+```
