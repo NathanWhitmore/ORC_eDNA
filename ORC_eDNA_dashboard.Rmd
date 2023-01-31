@@ -190,7 +190,8 @@ basemap <- leaflet() %>%
 loc.map<- basemap %>%
   addCircleMarkers(data = site.locations ,
                    clusterOptions = markerClusterOptions(),
-                   popup = ~client_sample_id)
+                   popup = ~client_sample_id) %>%
+  addMiniMap()
 
 loc.map
 
@@ -223,7 +224,7 @@ selectInput(
     "Genus" = "genus",
     "Species" = "species"
   ),
-      selected = "genus"
+      selected = "species"
 )
 
 
@@ -238,7 +239,7 @@ renderUI({
   selectInput("Taxon",
               label = str_to_title(input$Classification),
               choices = sort(unique(choices)),
-              selected = "Galaxias")
+              selected = "Galaxias gollumoides")
   
 })
 
@@ -436,7 +437,8 @@ loc.map <- reactive({
         my.taxon()$rid,
         "<br>"
       )
-    )
+    ) %>%
+   addMiniMap()
   
 })
   
@@ -777,7 +779,8 @@ output$mymap <- renderLeaflet({
         clusterOptions = markerClusterOptions(),
         popup = ~ client_sample_id
       ) %>%
-      addPolygons(data = site.polygon, color = "white") 
+      addPolygons(data = site.polygon, color = "white") %>%
+      addMiniMap()
     
 
     
@@ -824,7 +827,8 @@ output$mymap <- renderLeaflet({
         position = "topleft"
       ) %>%
       
-      addMarkers(data = site.locations)
+      addMarkers(data = site.locations)%>%
+      addMiniMap()
     
   }
   
@@ -940,9 +944,6 @@ renderPrint({
   
   all.selection()
   
-
-      
-
 })
 ```
 
@@ -1089,10 +1090,11 @@ renderLeaflet({
   
   
   # visualise site locations
-  loc.map <- basemap %>%
-    addCircleMarkers(data = clust.map, color = ~ beatCol(groups))
+  site.map <- basemap %>%
+    addCircleMarkers(data = clust.map, color = ~ beatCol(groups)) %>%
+   addMiniMap()
   
-  loc.map
+  site.map
   
   
   
@@ -1111,44 +1113,27 @@ Column {.sidebar}
 
 Please ensure a *maximum* of 1 spatial file / spatial file set is placed into the correct folder. Use the **File check** tab to check.
 
+
+
 ```{r}
+
+# spatial radio button
+
 radioButtons(
-  "spatial.file",
-  label = "",
-  choices = list("Single species polyline" = "polyline", 
-                 "Single species polygon" = "polygon",
-                 "Non migratory freshwater fish distribution" = "nmfish"),
+  "spatialfile",
+  label = "Type",
+  choices = list(
+    "Single species polyline" = "polyline",
+    "Single species polygon" = "polygon",
+    "Non migratory freshwater fish distribution" = "nmfish"
+  ),
   selected = "nmfish"
+  
 )
-
-
 ```
 
 
-
-
-```{r}
-
-non.mig <- reactive({
-  
-tryCatch({
-  
-  st_read("Your Non-Migratory Freshwater Fish Distribution/Non_migratory_Freshwater_Fish_Distribution.shp", quiet = TRUE) %>% 
-    st_transform(crs = 4326)
-  
-},  error = function(e){
-  message("It appears your fish distribution files are not correctly installed")
-
-} 
-)
-  
-})
-
-
-
-```
-
-**Your eDNA record is of:**
+**Your current eDNA record is of:**
 
 ```{r}
 renderUI({
@@ -1158,51 +1143,124 @@ renderUI({
 })
 ```
 
-
-**Compared against the known locations of:**
-
 ```{r}
-# reactive drop down menu from nmfish
+# my.shape determined by user selection
 
-
+my.shape <- reactive({
   
-renderUI({
-  
-  nmfish <- non.mig()
-  
-  st_geometry(nmfish) <- NULL
-  
-  non.mig.choices <- sort(unique(nmfish[, 3]))
-  
-  selectInput("non.mig.sp",
-              label = "",
-              choices = non.mig.choices)
-  
-})
-
-
-
-
-```
-
-
-```{r, echo = FALSE}
-output$downloadUI <- renderUI( {
-  downloadButton("downBtn", "Download csv data", style = "width:100%;")
-})
-
-output$downBtn <- downloadHandler(
-  filename = function() {'Name your file.csv'},
-  content = function(file) {
-    write.csv(final(), file, row.names = FALSE)
+  if (input$spatialfile == "nmfish") {
+    my.shape <-
+      st_read(
+        "Your Non-Migratory Freshwater Fish Distribution/Non_migratory_Freshwater_Fish_Distribution.shp",
+        quiet = TRUE
+      ) %>%
+      st_transform(crs = 4326)
+    my.shape
+    
+    
+  } else if (input$spatialfile == "polygon") {
+    filenames <- list.files(paste0(getwd(), "/Your Species Polygons"))
+    
+    # get shapefile
+    my.file <- filenames[grep("shp$", filenames)]
+    
+    my.shape2  <-
+      st_read(paste0("Your Species Polygons/", my.file), quiet = TRUE) %>%
+      st_make_valid() %>%
+      st_transform(crs = 4326)
+    
+    my.shape2
+    
+  } else {
+    
+    filenames <- list.files(paste0(getwd(), "/Your Species Polylines"))
+    
+    # get shapefile
+    my.file <- filenames[grep("shp$", filenames)]
+    
+    my.shape3  <-
+      st_read(paste0("Your Species Polylines/", my.file), quiet = TRUE) %>%
+      st_make_valid() %>%
+      st_transform(crs = 4326)
+    
+    my.shape3
   }
-)
+    
+
+  
+})
 ```
 
-**Threshold for aberrant result**
+
 ```{r}
-numericInput("aberrant", label = "Distance (nearest m)", value = 1000)
+
+# my.polygon conditional selections
+polygon.choices <- reactive({
+  if (input$spatialfile == "polygon") {
+    polyfish <- my.shape()
+    st_geometry(polyfish) <- NULL
+    polynames <- select_if(polyfish, is.character) %>% names()
+    polygon.choices <- sort(polynames)
+    polygon.choices
+    
+  } else {
+    polygon.choices <- NULL
+    polygon.choices
+  }
+})
+
+# species choices for my.polygon
+renderUI({
+  conditionalPanel(condition = "input.spatialfile == 'polygon'",
+                   
+                   selectInput("polygon.var",
+                               label = "Pop up information from:",
+                               choices = polygon.choices()))
+  
+})
+
 ```
+
+
+```{r}
+
+
+# nmfish conditional selections
+non.mig.choices <- reactive({
+  if (input$spatialfile == "nmfish") {
+    nmfish <- my.shape()
+    st_geometry(nmfish) <- NULL
+    non.mig.choices <- sort(unique(nmfish[, 3]))
+    non.mig.choices
+    
+  } else {
+    non.mig.choices <- NULL
+    non.mig.choices
+  }
+})
+
+# species choices from nmfish
+renderUI({
+  conditionalPanel(condition = "input.spatialfile == 'nmfish'",
+                   
+                   selectInput("non.mig.sp",
+                               label = "Species for comparison:",
+                               choices = non.mig.choices()))
+  
+})
+
+
+# distance threshold for nmfish
+renderUI({
+  conditionalPanel(
+    condition = "input.spatialfile == 'nmfish'",
+    
+    numericInput("aberrant", label = "Distance threshold for aberrant result (nearest m)", value = 1000)
+  )
+  
+})
+```
+  
 
 **Write note for csv file**
 ```{r}
@@ -1245,26 +1303,27 @@ Row {.tabset .tabset-fade}
 ```{r}
 
 
-
 renderLeaflet({
-  
-  
-  
-  non.mig.sp <- non.mig() %>% filter(Species == input$non.mig.sp) %>% st_make_valid()
-  
+  if (input$spatialfile == "nmfish") {
+    
+    non.mig.sp <-
+      my.shape() %>% 
+      filter(Species == input$non.mig.sp) %>% 
+      st_make_valid() 
+    
     # get nearest
     nearest <- st_nearest_feature(my.taxon(), non.mig.sp)
     
     # get distance
     dist <-
-      st_distance(my.taxon(), non.mig.sp[nearest,], by_element = TRUE)
+      st_distance(my.taxon(), non.mig.sp[nearest, ], by_element = TRUE)
     
     # make line between points and nearest known location via loop
     my.feature <- list()
     
     for (i in 1:nrow(my.taxon())) {
       my.feature[[i]] <-
-        st_nearest_points(my.taxon()[i, ], non.mig.sp[nearest[i], ]) %>%
+        st_nearest_points(my.taxon()[i,], non.mig.sp[nearest[i],]) %>%
         st_sf()
     }
     
@@ -1280,48 +1339,42 @@ renderLeaflet({
                    color = "yellow",
                    weight = 3)
     
-})
-```
+    
+  } else if (input$spatialfile == "polyline") {
+    
+    loc.map()
+    
+  } else {
+    
+    # work out if in or out
+    my.polygon <- my.shape()
+    my.polygon$present <- lengths(st_intersects(my.polygon, my.taxon())) > 0
+    my.polygon$present <- ifelse(my.polygon$present == TRUE, "red", "black")
 
-
-
-
-
-
-
-```{r}
-aberrant <- reactive({
-
-   non.mig.sp <- non.mig() %>% filter(Species == input$non.mig.sp) %>% st_make_valid()
+    my.popup.col <- which(colnames(my.polygon)== input$polygon.var)
+    
+    loc.map() %>%
+      addPolygons(
+        data = my.polygon,
+        fillColor = ~ present,
+        color = "white",
+        weight = 1,
+        fillOpacity = 0.3,
+        highlightOptions = highlightOptions(
+          color = 'white',
+          weight = 1,
+          bringToFront = TRUE
+        ),
+        popup = my.polygon[[input$polygon.var]]
+      )
+    
+    
+  }
   
-    # get nearest
-    nearest <- st_nearest_feature(my.taxon(), non.mig.sp)
-    
-    # get distance
-    dist <-
-      st_distance(my.taxon(), non.mig.sp[nearest,], by_element = TRUE)
-    
-    # assemble into data frame
-    aberrant <- my.taxon()
-    
-    # remove unnecessary columns
-    aberrant <- aberrant[,1:16]
-    
-    # distace
-    aberrant$dist <- as.numeric(dist)
-    
-    # filter by distance
-    aberrant <- aberrant %>% filter(dist >= input$aberrant)
-    
-    # add notes
-    aberrant$notes <- input$notes
-    
-    # return
-    aberrant
-
 })
-
 ```
+
+
 
 
 ### Sample data
@@ -1330,22 +1383,33 @@ aberrant <- reactive({
 
 aberrant <- reactive({
   
- 
-   non.mig.sp <- non.mig() %>% filter(Species == input$non.mig.sp) %>% st_make_valid()
+ if (input$spatialfile == "nmfish") {
+   
+   non.mig.sp <- my.shape() %>% 
+     filter(Species == input$non.mig.sp) %>% 
+     st_make_valid()
   
     # get nearest
     nearest <- st_nearest_feature(my.taxon(), non.mig.sp)
     
+    # flatten (change crs to NZTM for distance calculation)
+    my.taxon.flat <- my.taxon() %>% st_transform(crs = 2193)
+    non.mig.sp.flat <- non.mig.sp  %>% st_transform(crs = 2193)
+    
     # get distance
     dist.m <-
-      st_distance(my.taxon(), non.mig.sp[nearest,], by_element = TRUE)
+      st_distance(my.taxon.flat , non.mig.sp.flat[nearest,], 
+                  by_element = TRUE)
     dist.m <- round(dist.m, 0)
     
     # assemble into data frame
-    aberrant <- my.taxon()
+    aberrant <- my.taxon.flat 
     
     # remove unnecessary columns
     aberrant <- aberrant[,1:16]
+    
+    # return crs to longlate
+    aberrant <- aberrant %>% st_transform(crs = 4326)
     
     # distance
     aberrant$dist.m <- as.numeric(dist.m)
@@ -1368,6 +1432,12 @@ aberrant <- reactive({
     
     # return
     aberrant 
+    
+ } else {
+   
+   aberrant <- NULL
+   aberrant
+ }
 
   
 })
@@ -1375,11 +1445,12 @@ aberrant <- reactive({
 
 renderDataTable({
   
-  if (nrow(aberrant()) > 1){
-    
+  if (nrow(aberrant()) > 0){
+   
+    # remove unwanted columns 
    my.aberrant <- aberrant()[, -c(1:4)]
     
-        datatable(my.aberrant, 
+    datatable(my.aberrant, 
                   options = list(filter = "none",
                   scroll = TRUE, "pageLength" = 8))
     
@@ -1391,58 +1462,6 @@ renderDataTable({
 })
     
 
-
-```
-
-
-### File check
-
-Files present:
-
-```{r}
-
-
-
-
-renderPrint({
-  
-  if (input$spatial.file == "nmfish") {
-    A <- list.files(paste0(getwd(), "/Your Non-Migratory Freshwater Fish Distribution"))
-    
-    if (identical(A, character(0)) == TRUE) {
-      showModal(modalDialog("No files are present. Please copy file(s) into: 'Your Non-Migratory Freshwater Fish Distribution'"))
-      
-    } else {
-      print(A, row.name = FALSE)
-    }
-    
-    
-    
-  } else if (input$spatial.file == "polyline") {
-    A <- list.files(paste0(getwd(), "/Your Polylines"))
-    
-    if (identical(A, character(0)) == TRUE) {
-      showModal(modalDialog("No files are present. Please copy file(s) into: 'Your Polylines'"))
-      
-    } else {
-      print(A, row.names = FALSE)
-    }
-    
-  } else {
-    A <- list.files(paste0(getwd(), "/Your Polygons"))
-    
-    if (identical(A, character(0)) == TRUE) {
-      showModal(modalDialog("No files are present. Please copy file(s) into: 'Your Polygons'"))
-      
-    } else {
-      print(A, row.names = FALSE)
-    }
-    
-    
-  }
-  
-})  
-  
 
 ```
 
