@@ -275,8 +275,10 @@ renderLeaflet({
 
 
 
+
+
+
 renderLeaflet ({
-  
   # override any random origin of grid if it exists
   set.seed(500)
   
@@ -293,20 +295,67 @@ renderLeaflet ({
     st_as_sf()
   
   inter <- st_intersection(catch.2193, grid) %>%
-    st_transform(crs = 4236)
+    st_transform(crs = 4326)
   
-  leaflet() %>%
-    # add different provider tiles
-    addProviderTiles("Esri.WorldImagery",
-                     # give the layer a name
-                     group = "World") %>%
-    addPolygons(
-      data = inter,
-      weight = 1,
-      fillOpacity = 0.05,
-      color = "white"
-    ) %>%
-    addMiniMap()
+  
+  # group by coord$xy and date
+  eDNA.counts <- eDNA_my_prov_sf() %>%
+    group_by(eDNA_coord.xy,  uid) %>%
+    tally()
+  
+  # count intersections with grid and line
+  my.intersects <- st_intersects(inter, eDNA.counts)
+  
+  # make raster
+  inter$counted <- lengths(my.intersects)
+  inter$counted <- ifelse(inter$counted == 0, NA, inter$counted)
+  
+  # Create a continuous palette function
+  
+  if (sum(inter$counted, na.rm = TRUE) > 0) {
+    my.pal <-
+      colorNumeric(palette = "YlGnBu",
+                   domain = inter$counted,
+                   na.color = NA)
+    
+    # return NA for 0 but otherwise 1 for transparency
+    factop <- function(x) {
+      ifelse(is.na(x), 0, 0.7)
+    }
+    
+    leaflet() %>%
+      # add different provider tiles
+      addProviderTiles("Esri.WorldImagery",
+                       # give the layer a name
+                       group = "World") %>%
+      addPolygons(
+        data = inter,
+        weight = 1,
+        fillOpacity = ~ factop(counted),
+        fillColor = ~ my.pal(counted),
+        color = "white"
+      ) %>%
+      addLegend(
+        data = inter ,
+        position = "topright",
+        pal = my.pal,
+        values = inter$counted,
+        title = "Counts per 10 sq km",
+        na.label = ""
+      ) %>%
+      addMiniMap()
+    
+  } else {
+    leaflet() %>%
+      # add different provider tiles
+      addProviderTiles("Esri.WorldImagery",
+                       # give the layer a name
+                       group = "World") %>%
+      addPolygons(data = inter,
+                  weight = 1,
+                  color = "white")
+    
+  }
   
 })
 ```
