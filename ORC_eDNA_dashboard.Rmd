@@ -126,7 +126,7 @@ conditionalPanel(
 )
 
 # crop to catchment (actually crop) to create usable subset
-my.catchment <- reactive({
+my.clip.province <- reactive({
   if (input$province == "Yes") {
     boundaries %>% filter(boundaries$REGC2022_1 == input$my.province)
     
@@ -205,7 +205,7 @@ eDNA_my_prov_sf <- reactive ({
   
   eDNA_my_prov_sf  <- eDNA %>%
   st_as_sf(coords = c("longitude", "latitude"), crs = 4326) %>%
-  st_intersection(my.catchment())
+  st_intersection(my.clip.province())
   
   # fix dates
   eDNA_my_prov_sf$collection_date <- ymd(eDNA_my_prov_sf $collection_date )
@@ -245,7 +245,7 @@ basemap <- reactive({
     # give the layer a name
     group = "World"
   ) %>%
-  addPolygons(data = my.catchment(),
+  addPolygons(data = my.clip.province(),
               weight = 1,
               fillOpacity = 0.05,
               color = "white")
@@ -280,7 +280,7 @@ renderLeaflet ({
   # override any random origin of grid if it exists
   set.seed(500)
   
-  catch.2193 <- my.catchment() %>%
+  catch.2193 <- my.clip.province() %>%
     st_transform(crs = 2193)
   
   
@@ -512,7 +512,9 @@ renderLeaflet({
       color = "white",
       fillOpacity = 0.01,
       radius = 10
-    ) 
+    ) %>%
+    addScaleBar(position = "topright",
+              options = scaleBarOptions(imperial = FALSE)) 
   
 })
 ```
@@ -1294,7 +1296,7 @@ catchment.choices <- reactive({
   }
 })
 
-# species choices for my.catchment
+# species choices for catchment
 renderUI({
   conditionalPanel(condition = "input.spatialfile == 'catchment'",
                    
@@ -1551,7 +1553,10 @@ my.map <- eventReactive(input$submit,
 
 
 renderLeaflet ({
-  my.map()
+  
+  my.map() %>%
+    addScaleBar(position = "topright",
+              options = scaleBarOptions(imperial = FALSE)) 
   
   
 })
@@ -1568,7 +1573,8 @@ aberrant <- eventReactive(input$submit,
                        {
   
  if (input$spatialfile == "nmfish" |
-     input$spatialfile == "polyline" ) {
+     input$spatialfile == "polyline"|
+     input$spatialfile == "polygon" ){
    
    if (input$spatialfile == "nmfish") {
      
@@ -1625,12 +1631,15 @@ aberrant <- eventReactive(input$submit,
     # filter by distance
     aberrant <- aberrant %>% filter(dist.m >= input$aberrant)
     
+    # remove unwanted columns 
+    aberrant <- aberrant[, -c(1:4)]
+    
     # return
     aberrant 
     
  } else {
    
-   aberrant <- NULL
+   aberrant <- data.frame(Type = "Catchment", Notes = "Not appliable for catchments")
    aberrant
    
  }
@@ -1643,10 +1652,8 @@ renderDataTable({
   
   if (nrow(aberrant()) > 0){
    
-    # remove unwanted columns 
-   my.aberrant <- aberrant()[, -c(1:4)]
-    
-    datatable(my.aberrant, 
+
+    datatable(aberrant(), 
                   options = list(filter = "none",
                   scroll = TRUE, "pageLength" = 8))
     
