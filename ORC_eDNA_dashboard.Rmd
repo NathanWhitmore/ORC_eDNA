@@ -33,6 +33,20 @@ Sample locations
 Column {.sidebar}
 -----------------------------------------------------------------------
 
+**Upload data from**
+
+```{r}
+radioButtons(
+  "origin",
+  label = "Either:",
+  choices = list("Wilderlab API" = "wilderlab", 
+                 "Local drive" = "local"),
+  selected = "wilderlab"
+)
+
+
+```
+
 **In this dashboard are 4 pages:**
 
 1. **Sample locations**  - which shows all sampling locations
@@ -697,6 +711,42 @@ list(
 
 
 ```
+
+
+By threat classifcation
+=====================================
+
+Column {.sidebar}
+-----------------------------------------------------------------------
+
+Choose group to investigate:
+
+```{r}
+# choose 
+renderUI({
+
+  selectInput("layname",
+              label = "Select group",
+              choices = sort(unique(eDNA$group))
+              )
+})
+```
+
+
+Row {.tabset .tabset-fade}
+-------------------------------------
+
+### Zoomable map
+
+```{r}
+renderPrint({
+  
+  eDNA.layname <- eDNA_my_prov_sf() %>% filter(group == input$layname)
+  
+  head(eDNA.layname)
+})
+```
+
 
 
 By spatial
