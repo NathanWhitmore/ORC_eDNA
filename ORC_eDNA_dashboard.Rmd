@@ -377,7 +377,7 @@ renderLeaflet ({
 
 
 
-By classification
+By taxonomy
 =====================================
 
 Column {.sidebar}
@@ -713,7 +713,35 @@ list(
 ```
 
 
-By threat classifcation
+```{r}
+my.group <- reactive({
+  
+  # input$layname
+  
+  eDNA.layname <- eDNA_my_prov_sf() %>% filter(group == input$layname)
+  eDNA.layname
+  
+})
+```
+
+```{r}
+# join by NZTCS
+
+my.nztcs <- reactive({
+  
+  my.group <- my.group()
+  my.group <- my.group %>% drop_na(species)
+  
+  nztcs$species <- nztcs$`Current Species Name`
+  my.nztcs <- left_join(my.group, nztcs, by = "species")
+ 
+  my.nztcs 
+  
+})
+
+```
+
+By threat status
 =====================================
 
 Column {.sidebar}
@@ -727,10 +755,69 @@ renderUI({
 
   selectInput("layname",
               label = "Select group",
-              choices = sort(unique(eDNA$group))
-              )
+              choices = sort(unique(eDNA$group)),
+              selected = "Fish")
 })
 ```
+
+```{r}
+# category drop down
+renderUI({
+  
+  my.selection <- my.nztcs()
+  st_geometry(my.selection) <- NULL
+  
+  choices <- sort(unique(my.selection$Category))
+  
+  selectInput("category",
+              label = "Threat category",
+              choices = choices,
+              selected = "Not Threatened")
+  
+})
+
+```
+
+```{r}
+# category and status
+my.category <- reactive({
+  
+  my.nztcs() %>% filter(Category == input$category)
+  
+})
+
+```
+
+
+```{r}
+# status drop down
+
+renderUI({
+
+conditionalPanel(
+  condition = "input.category == 'Threatened'",
+  
+  selectInput("status",
+              label = "Threat status",
+              choices = sort(unique(my.category()$Status)),
+              selected = "Not Threatened")
+  
+  )
+  
+})
+```
+
+```{r}
+# category and status
+my.status <- reactive({
+  
+  my.nztcs()  %>% filter(Status == input$status)
+  
+})
+
+```
+
+
 
 
 Row {.tabset .tabset-fade}
@@ -738,14 +825,113 @@ Row {.tabset .tabset-fade}
 
 ### Zoomable map
 
+
 ```{r}
-renderPrint({
+renderLeaflet({
   
-  eDNA.layname <- eDNA_my_prov_sf() %>% filter(group == input$layname)
+  if(input$category == "Threatened"){
   
-  head(eDNA.layname)
+  loc.map() %>%   
+    addCircleMarkers(
+      data = my.status(),
+      color = "red",
+      fillOpacity = 0.01,
+      radius = 10
+    ) %>%
+    addScaleBar(position = "topright",
+              options = scaleBarOptions(imperial = FALSE)) 
+    
+  } else {
+    
+  loc.map() %>%   
+    addCircleMarkers(
+      data = my.category(),
+      color = "red",
+      fillOpacity = 0.01,
+      radius = 10
+    ) %>%
+    addScaleBar(position = "topright",
+              options = scaleBarOptions(imperial = FALSE))     
+    
+  }
+  
 })
 ```
+
+### Threat listing
+
+```{r}
+renderDataTable({
+  
+  if(input$category == "Threatened"){
+  
+  datatable(my.status(), 
+                  options = list(filter = "none",
+                  scrollX = TRUE, "pageLength" = 8))
+    
+  } else {
+    
+      datatable(my.category(), 
+                  options = list(filter = "none",
+                  scrollX = TRUE, "pageLength" = 8))
+  }
+    
+})
+```
+
+### Species
+
+```{r}
+# summary
+
+renderDataTable({
+  
+  if(input$category == "Threatened"){
+  
+  my.status() %>% group_by(species, Status) %>% tally()
+    
+  } else {
+    
+   my.category() %>% group_by(species, Category)  %>% tally()
+    
+  }
+    
+})
+```
+
+### Overall
+
+```{r}
+renderDataTable({
+  
+  interim <- my.nztcs() %>% group_by(species, Category, Status)  %>% tally()
+  interim <- interim %>% group_by(Category, Status)%>% tally()
+  interim
+  
+  
+  datatable(interim, 
+                  options = list(filter = "none",
+                  scrollX = TRUE, "pageLength" = 8))
+})
+```
+
+### Graph
+
+```{r}
+renderPlot({
+  
+  my.nzcts.sum <- my.nztcs() %>%
+    group_by(Category, Status) %>%
+    summarise(count = n())
+  
+  ggplot()+
+    geom_point(data = my.nzcts.sum, aes(x = Status, y = count , colour = Category),
+               size = 10)
+  
+})
+```
+
+
 
 
 
