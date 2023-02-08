@@ -154,7 +154,6 @@ my.clip.province <- reactive({
 
 Row {.tabset .tabset-fade}
 -------------------------------------
-### Zoomable map
 
 ```{r}
 # APIs
@@ -267,15 +266,15 @@ basemap <- reactive({
 
 
 # visualise site locations
-renderLeaflet({
+#renderLeaflet({
   
-  basemap() %>%
-  addCircleMarkers(data = site.locations() ,
-                   clusterOptions = markerClusterOptions(),
-                   popup = ~client_sample_id) %>%
-  addMiniMap()
+#  basemap() %>%
+#  addCircleMarkers(data = site.locations() ,
+#                   clusterOptions = markerClusterOptions(),
+#                   popup = ~client_sample_id) %>%
+#  addMiniMap()
 
-})
+#})
 
 
 
@@ -472,12 +471,15 @@ Row {data-height=75}
 ```{r}
 
 percentage_of_locations <- reactive({
+
    round(length(unique(my.sf.coord()$xy))/
     length(unique(my.coord()$xy)),4)  * 100
 })
 
 
 renderGauge({
+  
+  req(my.sf.coord(), my.coord(), percentage_of_locations())
   
 gauge(percentage_of_locations(), min = 0, max = 100,  symbol = '%',
     gaugeSectors(colors = "#f93b25"))
@@ -495,6 +497,8 @@ no_of_actual_sites <- reactive({
 })
 
 renderValueBox({
+  
+  req(input$Taxon)
 
   valueBox(no_of_actual_sites(), color = " #7dcea0")
   
@@ -514,6 +518,8 @@ no_dates <- reactive({
 
 renderValueBox({
   
+  req(input$Taxon)
+  
   valueBox(no_dates(),  color = "#7fb3d5")
   
 })
@@ -530,6 +536,8 @@ Row {.tabset .tabset-fade}
 
 
 loc.map <- reactive({
+  
+  req(input$Taxon)
   
   
   # visualise site locations
@@ -589,6 +597,8 @@ renderLeaflet({
 
 sp.info <- reactive({
   
+  req(input$Taxon)
+  
   
   if(input$Classification != "species"){
     
@@ -623,6 +633,8 @@ sp.info <- reactive({
 
 renderDataTable({
   
+  req(input$Taxon)
+  
   
   datatable(
     sp.info(),
@@ -652,6 +664,8 @@ renderDataTable({
 
 renderDataTable({
   
+  req(input$Taxon)
+  
     temp <- my.taxon()
     my.coord <- st_coordinates(temp)
     st_geometry(temp) <- NULL
@@ -678,6 +692,8 @@ renderDataTable({
 
 # reactive elements
 my.sf.coord <- reactive({
+  
+  req(input$Taxon)
   
   my.sf.coord <- st_coordinates(my.taxon()) %>%
      as.data.frame()
@@ -782,6 +798,9 @@ renderUI({
 # category and status
 my.category <- reactive({
   
+   req(input$layname)
+  
+  
   my.nztcs() %>% filter(Category == input$category)
   
 })
@@ -793,6 +812,8 @@ my.category <- reactive({
 # status drop down
 
 renderUI({
+  
+    req(input$category)
 
 conditionalPanel(
   condition = "input.category == 'Threatened'",
@@ -813,6 +834,7 @@ my.status <- reactive({
   
   my.nztcs()  %>% filter(Status == input$status)
   
+  
 })
 
 ```
@@ -828,6 +850,8 @@ Row {.tabset .tabset-fade}
 
 ```{r}
 renderLeaflet({
+  
+  req(input$category)
   
   if(input$category == "Threatened"){
   
@@ -858,81 +882,83 @@ renderLeaflet({
 })
 ```
 
-### Threat listing
 
-```{r}
-renderDataTable({
-  
-  if(input$category == "Threatened"){
-  
-  datatable(my.status(), 
-                  options = list(filter = "none",
-                  scrollX = TRUE, "pageLength" = 8))
-    
-  } else {
-    
-      datatable(my.category(), 
-                  options = list(filter = "none",
-                  scrollX = TRUE, "pageLength" = 8))
-  }
-    
-})
-```
+### Species in your selection
 
-### Species
 
 ```{r}
 # summary
 
 renderDataTable({
   
+  req(input$category)
+  
   if(input$category == "Threatened"){
   
-  my.status() %>% group_by(species, Status) %>% tally()
+  my.status() %>% group_by(species, Category, Status) %>% tally()
     
   } else {
     
-   my.category() %>% group_by(species, Category)  %>% tally()
+   my.category() %>% group_by(species, Category, Status)  %>% tally()
     
   }
     
 })
 ```
 
-### Overall
+### Unmatched eDNA samples
+
+These samples do not have a NZTCS listing:
 
 ```{r}
 renderDataTable({
   
-  interim <- my.nztcs() %>% group_by(species, Category, Status)  %>% tally()
-  interim <- interim %>% group_by(Category, Status)%>% tally()
-  interim
+  req(input$category)
+  
+  my.incompletes <- my.nztcs()[!complete.cases(my.nztcs()$Category), ] %>%
+    as.data.frame()
+  
+  my.incompletes <- my.incompletes %>%
+    select(c("phylum", "class" ,"order", "family" ,"genus","species")) %>%
+    distinct()
   
   
-  datatable(interim, 
+  
+   datatable(my.incompletes, 
                   options = list(filter = "none",
-                  scrollX = TRUE, "pageLength" = 8))
+                  scrollX = TRUE, "pageLength" = 15))
+  
 })
 ```
 
-### Graph
+### Summary of selected area
 
 ```{r}
-renderPlot({
+renderDataTable({
   
-  my.nzcts.sum <- my.nztcs() %>%
-    group_by(Category, Status) %>%
-    summarise(count = n())
+  req(input$category)
   
-  ggplot()+
-    geom_point(data = my.nzcts.sum, aes(x = Status, y = count , colour = Category),
-               size = 10)
+  interim <-
+    my.nztcs() %>% group_by(species, Category, Status)  %>% tally()
+  interim <- interim %>% group_by(Category, Status) %>% tally()
+  
+  st_geometry(interim) <- NULL
+  
+  # replace NAs with "unmatched"
+  interim$Category <-
+    ifelse(is.na(interim$Category), "No match in NZTCS", interim$Category)
+  interim$Status <-
+    ifelse(is.na(interim$Status), "No match in NZTCS", interim$Category)
+  
+  datatable(interim,
+            options = list(
+              filter = "none",
+              scrollX = TRUE,
+              "pageLength" = 15
+            ))
   
 })
 ```
-
-
-
 
 
 By spatial
@@ -1201,6 +1227,8 @@ all.selection <- reactive({
 
 ```{r}
 selection <- reactive({
+  
+    req(input$entries)
   
     selection <- all.selection() %>% 
       slice_max(instances, n = input$entries) 
