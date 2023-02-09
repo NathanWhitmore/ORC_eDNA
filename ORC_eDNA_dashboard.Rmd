@@ -205,23 +205,20 @@ eDNA <- left_join(records, date.id, by = "UID")
 
 
 ```{r, message = FALSE}
-# read in standardised fmu shapefile (created in eDNA base code)
-
 # read in eDNA data (fast)
 eDNA <- eDNA %>% # data provided by Wilderlab
   janitor::clean_names()
 
 
-# this is because data does not match Otago region
-# now 16 secs rather than 145 secs
+# clip by province
 eDNA_my_prov_sf <- reactive ({
-  
   eDNA_my_prov_sf  <- eDNA %>%
-  st_as_sf(coords = c("longitude", "latitude"), crs = 4326) %>%
-  st_intersection(my.clip.province())
+    st_as_sf(coords = c("longitude", "latitude"), crs = 4326) %>%
+    st_intersection(my.clip.province())
   
   # fix dates
-  eDNA_my_prov_sf$collection_date <- ymd(eDNA_my_prov_sf $collection_date )
+  eDNA_my_prov_sf$collection_date <-
+    ymd(eDNA_my_prov_sf$collection_date)
   
   # unique coord
   eDNA_coord <- st_coordinates(eDNA_my_prov_sf) %>% as.data.frame()
@@ -235,39 +232,39 @@ eDNA_my_prov_sf <- reactive ({
 # sample locations (fast) by first date
 site.locations <- reactive({
   
-  eDNA_my_prov_sf() %>%  
+  eDNA_my_prov_sf() %>%
     group_by(eDNA_coord.xy) %>%
     filter(collection_date == min(collection_date)) %>%
-    slice(1) 
-  
+    slice(1)
+
 })
 
 
 # make base map
 basemap <- reactive({
-  
   leaflet() %>%
-  # add different provider tiles
-  addProviderTiles(
-    "OpenStreetMap",
-    # give the layer a name
-    group = "OpenStreetMap"
-  ) %>%
-  addProviderTiles(
-    "Esri.WorldImagery",
-    # give the layer a name
-    group = "World"
-  ) %>%
-  addPolygons(data = my.clip.province(),
-              weight = 1,
-              fillOpacity = 0.05,
-              color = "white")
-  })
+    # add different provider tiles
+    addProviderTiles("OpenStreetMap",
+                     # give the layer a name
+                     group = "Open Street Map") %>%
+    addProviderTiles("Esri.WorldImagery",
+                     # give the layer a name
+                     group = "World") %>%
+    addPolygons(
+      data = my.clip.province(),
+      weight = 1,
+      fillOpacity = 0.05,
+      color = "white"
+    ) %>%
+    addLayersControl(baseGroups = c("World", "Open Street Map"),
+                     position = "topleft") 
+  
+})
 
 
 # visualise site locations
-#renderLeaflet({
-  
+# renderLeaflet({
+
 #  basemap() %>%
 #  addCircleMarkers(data = site.locations() ,
 #                   clusterOptions = markerClusterOptions(),
@@ -276,20 +273,11 @@ basemap <- reactive({
 
 #})
 
-
-
-
-
 ```
 
-### Meshed
+### Gridded map (10 sq km)
 
 ```{r}
-
-
-
-
-
 
 renderLeaflet ({
   # override any random origin of grid if it exists
@@ -359,6 +347,7 @@ renderLeaflet ({
       addMiniMap()
     
   } else {
+    
     leaflet() %>%
       # add different provider tiles
       addProviderTiles("Esri.WorldImagery",
@@ -455,9 +444,6 @@ my.coord <- reactive ({
   my.coord
   
 })
-
-
-
 
 ```
 
@@ -971,7 +957,7 @@ Column {.sidebar}
 
 You can either:
 
-1. Upload a predefined shapefile or kml file
+1. Upload a predefined ESRI shapefile (from the **Spatial Selection** folder) or 
 2. Select an area either square, circular, or a polygon on the fly
 
 The eDNA data will extracted for your selected area.
@@ -982,34 +968,39 @@ The eDNA data will extracted for your selected area.
 radioButtons(
   "choice",
   label = "One of:",
-  choices = list("upload spatial file" = "upload", "draw now" = "draw"),
+  choices = list("upload spatial selection" = "upload", "draw now" = "draw"),
   selected = "draw"
 )
-
-
-conditionalPanel(
-  condition = "input.choice == 'upload'",
-  
-  fileInput("file1", "Choose Shape File",
-                    multiple = FALSE),
-  
-  )
-
-
 
 ```
 
 ```{r}
 # reactive data from maps
 
-dataset <- eventReactive(input$file1,{
-  
-  dataset <- st_read(input$file1$datapath, quiet = TRUE)
 
+dataset <- reactive({
+  
+  if (input$choice == "upload") {
+    filenames <- list.files(paste0(getwd(), "/Spatial Selection"))
+    
+    # get shapefile
+    my.file <- filenames[grep("shp$", filenames)]
+    
+    
+    st_read(paste0("Spatial Selection/", my.file), quiet = TRUE) %>%
+      st_make_valid() %>%
+      st_transform(crs = 4326)
+    
+  } else {
+    
+    my.spatial.selection  <- NULL
+    my.spatial.selection  
+  }
+  
 })
 
 
-# selction from drawing
+# selection from drawing
 sp.file <- eventReactive(input$mymap_draw_new_feature,{
   
     feature <- input$mymap_draw_new_feature
@@ -1069,25 +1060,6 @@ output$downBtn <- downloadHandler(
 )
 ```
 
-**Download shapefile**
-
-```{r}
-# Create placeholder for the download button
-uiOutput("downloadUIsp")
-```
-
-```{r, echo = FALSE}
-output$downloadUIsp <- renderUI( {
-  downloadButton("downBtnsp", "Download shapefile", style = "width:100%;")
-})
-
-output$downBtnsp <- downloadHandler(
-  filename = function() {'Name your file.csv'},
-  content = function(file) {
-    write.csv(final(), file, row.names = FALSE)
-  }
-)
-```
 
 
 Row {.tabset .tabset-fade}
@@ -1133,28 +1105,41 @@ my.selection <- reactive({
 
 ```{r}
 
-
 leafletOutput("mymap", height = 800)
 
 output$mymap <- renderLeaflet({
-  
   if (input$choice == "upload") {
     
     site.polygon <- dataset() %>% st_zm()
     
-    new.map <- basemap() %>%
-      addCircleMarkers(
-        data = my.selection() ,
-        clusterOptions = markerClusterOptions(),
-        popup = ~ client_sample_id
+    new.map <- leaflet() %>%
+      # add base maps
+      addProviderTiles("OpenStreetMap",
+                       # give the layer a name
+                       group = "Open Street Map") %>%
+      addProviderTiles("Esri.WorldImagery",
+                       # give the layer a name
+                       group = "World") %>%
+      addProviderTiles("Stamen.Terrain",
+                       # give the layer a name
+                       group = "Terrain") %>%
+      addLayersControl(
+        baseGroups = c("World", "Terrain", "Open Street Map"),
+        position = "topleft"
+      ) %>%
+      addMarkers(data = site.locations()) %>%
+      addPolygons(
+        data = my.clip.province(),
+        weight = 1,
+        fillOpacity = 0.05,
+        color = "white"
       ) %>%
       addPolygons(data = site.polygon, color = "white") %>%
       addMiniMap()
     
-
+    
     
   } else {
-    
     leaflet() %>%
       
       # add base maps
@@ -1168,10 +1153,13 @@ output$mymap <- renderLeaflet({
                        # give the layer a name
                        group = "Terrain") %>%
       
-      # set zoom and position
-      setView(lng = 169,
-              lat = -45.9,
-              zoom = 8) %>%
+      
+      addPolygons(
+        data = my.clip.province(),
+        weight = 1,
+        fillOpacity = 0.05,
+        color = "white"
+      ) %>%
       
       # add drawing tools
       addDrawToolbar(
@@ -1196,13 +1184,12 @@ output$mymap <- renderLeaflet({
         position = "topleft"
       ) %>%
       
-      addMarkers(data = site.locations())%>%
+      addMarkers(data = site.locations()) %>%
       addMiniMap()
     
   }
   
 })
-
 
 ```
 
@@ -1240,10 +1227,7 @@ selection <- reactive({
 })
 
 
-
 renderPlotly({
-
-  
 
   ggplot(selection(), aes(x = name ,
       y = instances,
@@ -1284,22 +1268,34 @@ renderDataTable({
 ### Area
 
 ```{r}
-renderUI({
+
+
+area <- reactive ({
   
-  if(sp.file()$feature_type == "circle"){
+  if (input$choice == "upload") {
     
-   area <- st_buffer(sp.file(), sp.file()$radius) %>% st_area()
+    dataset() %>% st_area()
     
   } else {
     
-   area <- sp.file() %>% st_area()
-     
+    if (sp.file()$feature_type == "circle") {
+      
+      st_buffer(sp.file(), sp.file()$radius) %>% st_area()
+      
+    } else {
+      sp.file() %>% st_area()
+      
+    }
+    
   }
   
+})
   
-  line1 <- paste("area (sq m) =",  round(area,2))
-  line2 <-paste("area (ha) =",  round(area/10000,2))
-  line3 <-paste("area (km) =",  round(area/1000000,2))
+renderUI({  
+  
+  line1 <- paste("area (sq m) =",  round(area(),2))
+  line2 <-paste("area (ha) =",  round(area()/10000,2))
+  line3 <-paste("area (km) =",  round(area()/1000000,2))
   
   HTML(paste(line1, line2, line3, sep = '<br/>'))
 
@@ -1308,13 +1304,13 @@ renderUI({
     
 ```
 
-### Testing
+
+### check
 
 ```{r}
 renderPrint({
   
-  all.selection()
-  
+  area()
 })
 ```
 
@@ -1398,8 +1394,8 @@ renderPlot({
 
 ```{r}
 
+
 renderLeaflet({
-  
   my.dna <- eDNA[, c("name", "latitude", "longitude", "uid")]
   
   # make future rowname
@@ -1447,29 +1443,23 @@ renderLeaflet({
     clust.map %>% separate(longlat, c("longitude", "latitude"),  sep = " ")
   
   clust.map <- st_as_sf(clust.map,
-               coords = c("longitude", "latitude"),
-               crs = 4326)
-
+                        coords = c("longitude", "latitude"),
+                        crs = 4326)
+  
   clust.map <- as_Spatial(clust.map)
   
   # make base map
-  map.clust <- leaflet() %>%
-    addProviderTiles("Esri.WorldImagery",
-                     group = "World")
+  # map.clust <- leaflet() %>%
+  
   
   beatCol <- colorFactor(palette = 'RdYlGn', clust.map$groups)
   
   
   # visualise site locations
-  site.map <- map.clust %>%
-    addCircleMarkers(data = clust.map, color = ~ beatCol(groups)) %>%
-   addMiniMap()
-  
-  site.map
-  
-  
-  
-  
+  basemap() %>%
+    addCircleMarkers(data = clust.map, color = ~ beatCol(groups))
+    
+
 })
 ```
 
@@ -2037,8 +2027,6 @@ renderPrint({
     "Polyline check" = your_polylines
   )
   
-  
 })  
   
-
 ```
