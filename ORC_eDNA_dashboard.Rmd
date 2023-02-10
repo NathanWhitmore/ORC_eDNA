@@ -341,7 +341,7 @@ renderLeaflet ({
         position = "topright",
         pal = my.pal,
         values = inter$counted,
-        title = "Counts per 10 sq km",
+        title = "Samples per 10 sq km",
         na.label = ""
       ) %>%
       addMiniMap()
@@ -701,7 +701,7 @@ list(
     `no. of site sample names (note: not standardised, synonyms possible)`= length(unique(my.taxon()$client_sample_id)),
     `site / client id names` = unique(my.taxon()$client_sample_id),
     `no. of actual sites with species detected` = no_of_actual_sites(),
-    `total sampling locations` = length(unique(my.coord$xy)),
+    `total sampling locations` = length(unique(my.coord()$xy)),
     `percentage of sampling locations` = percentage_of_locations() 
     
   )
@@ -917,7 +917,7 @@ renderDataTable({
 })
 ```
 
-### Summary of selected area
+### Summary (all categories & statuses)
 
 ```{r}
 renderDataTable({
@@ -1201,7 +1201,7 @@ all.selection <- reactive({
     filter(rank == "species" |rank == "subspecies") %>% 
     group_by(name)  %>%
     summarise(instances = n(),
-              `average count` = round(mean(count),1),
+              `average sequence count` = round(mean(count),1),
               `range` = paste(min(count),"–", max(count) )
               ) 
   
@@ -1231,7 +1231,7 @@ renderPlotly({
 
   ggplot(selection(), aes(x = name ,
       y = instances,
-      fill = `average count`,
+      fill = `average sequence count`,
       text = paste("range:", range))) +
     theme_minimal() +
     geom_col() +
@@ -1305,14 +1305,6 @@ renderUI({
 ```
 
 
-### check
-
-```{r}
-renderPrint({
-  
-  area()
-})
-```
 
 
 By cluster
@@ -1321,16 +1313,108 @@ By cluster
 Column {.sidebar}
 -----------------------------------------------------------------------
 
+**Explore patterns in biodiversity via clustering**
+
+Clusters are solely constructed around dissimilarities in biodiversity (i.e. spatial elements are ignored).
+
+<br/>
+
+
 **Number of clusters**
 
 
 ```{r}
-sliderInput("cluster", label = "No. of clusters", min = 2, 
-        max = 10, value = 2, step = 1)
+sliderInput("cluster", label = "Move slider:", min = 2, 
+        max = 10, value = 5, step = 1)
+```
+
+<br/>
+
+**Hierarchial clustering (via dissimilarities)**
+
+```{r}
+selectInput("hier",
+            label = "Method:",
+            choices = c( "complete", "ward.D", "ward.D2"),
+            selected = "ward.D")
 ```
 
 Row {.tabset .tabset-fade}
 -------------------------------------
+
+### Map
+
+```{r}
+
+renderLeaflet({
+  my.dna <- eDNA[, c("name", "latitude", "longitude", "uid")]
+  
+  # make future rowname
+  my.dna$longlat <- paste(my.dna$longitude, my.dna$latitude)
+  
+  # add count
+  my.dna$count <- 1
+  
+  # group and summarise
+  my.dnax <- my.dna  %>% group_by(longlat,  name) %>%
+    summarise(presence = sum(count))
+  
+  # reduce so row number is correct
+  my.dnax$presence <- ifelse(my.dnax$presence > 1, 1, 1)
+  
+  # pivot wider
+  my.dnax <- my.dnax %>% pivot_wider(names_from = name,
+                                     values_from = presence) %>% as.data.frame()
+  
+  # make row names
+  rownames(my.dnax) <- paste0(my.dnax$longlat)
+  
+  # remove unnecessary columns
+  my.dnax$longlat <- NULL
+  my.dnax$uid <- NULL
+  
+  # change NAs to 0
+  my.dnax[is.na(my.dnax)] <- 0
+  
+  
+  clust.map <- my.dnax
+  
+  # assign cluster
+  my.clust <-  my.dnax %>%
+    dist(method = "euclidean") %>%
+    hclust(method = input$hier)
+  
+  clust.map$groups <- as.factor(cutree(my.clust, k = input$cluster))
+  
+  # simplify and back calculate row names
+  clust.map$longlat <- rownames(clust.map)
+  clust.map <- clust.map[, c("groups", "longlat")]
+  
+  clust.map <-
+    clust.map %>% separate(longlat, c("longitude", "latitude"),  sep = " ")
+  
+  clust.map <- st_as_sf(clust.map,
+                        coords = c("longitude", "latitude"),
+                        crs = 4326)
+  
+  clust.map <- as_Spatial(clust.map)
+  
+  # make base map
+  # map.clust <- leaflet() %>%
+  
+  
+  beatCol <- colorFactor(palette = 'RdYlGn', clust.map$groups)
+  
+  
+  # visualise site locations
+  basemap() %>%
+    addCircleMarkers(data = clust.map, color = ~ beatCol(groups)) %>%
+    addMiniMap()
+    
+
+})
+```
+
 ### Dendrogram
 
 ```{r}
@@ -1372,7 +1456,7 @@ my.clust <- reactive ({
   # hierarchical clustering
   my.clust <-  my.dnax %>%
     dist(method = "euclidean") %>%
-    hclust(method = "ward.D")
+    hclust(method = input$hier)
   
   my.clust
   
@@ -1383,85 +1467,14 @@ my.clust <- reactive ({
 
 renderPlot({
   
-  fviz_dend(my.clust(), k=input$cluster)
+  fviz_dend(my.clust(), k=input$cluster, size = 3)
   
 })
 
 
 ```
 
-### Map
 
-```{r}
-
-
-renderLeaflet({
-  my.dna <- eDNA[, c("name", "latitude", "longitude", "uid")]
-  
-  # make future rowname
-  my.dna$longlat <- paste(my.dna$longitude, my.dna$latitude)
-  
-  # add count
-  my.dna$count <- 1
-  
-  # group and summarise
-  my.dnax <- my.dna  %>% group_by(longlat,  name) %>%
-    summarise(presence = sum(count))
-  
-  # reduce so row number is correct
-  my.dnax$presence <- ifelse(my.dnax$presence > 1, 1, 1)
-  
-  # pivot wider
-  my.dnax <- my.dnax %>% pivot_wider(names_from = name,
-                                     values_from = presence) %>% as.data.frame()
-  
-  # make row names
-  rownames(my.dnax) <- paste0(my.dnax$longlat)
-  
-  # remove unnecessary columns
-  my.dnax$longlat <- NULL
-  my.dnax$uid <- NULL
-  
-  # change NAs to 0
-  my.dnax[is.na(my.dnax)] <- 0
-  
-  
-  clust.map <- my.dnax
-  
-  # assign cluster
-  my.clust <-  my.dnax %>%
-    dist(method = "euclidean") %>%
-    hclust(method = "ward.D")
-  
-  clust.map$groups <- as.factor(cutree(my.clust, k = input$cluster))
-  
-  # simplify and back calculate row names
-  clust.map$longlat <- rownames(clust.map)
-  clust.map <- clust.map[, c("groups", "longlat")]
-  
-  clust.map <-
-    clust.map %>% separate(longlat, c("longitude", "latitude"),  sep = " ")
-  
-  clust.map <- st_as_sf(clust.map,
-                        coords = c("longitude", "latitude"),
-                        crs = 4326)
-  
-  clust.map <- as_Spatial(clust.map)
-  
-  # make base map
-  # map.clust <- leaflet() %>%
-  
-  
-  beatCol <- colorFactor(palette = 'RdYlGn', clust.map$groups)
-  
-  
-  # visualise site locations
-  basemap() %>%
-    addCircleMarkers(data = clust.map, color = ~ beatCol(groups))
-    
-
-})
-```
 
 
 Test existing knowledge
@@ -1486,6 +1499,7 @@ radioButtons(
   "spatialfile",
   label = "Type",
   choices = list(
+    "Single species point" = "point",
     "Single species polyline" = "polyline",
     "Single species polygon" = "polygon",
     "Catchment polygon" = "catchment",
@@ -1559,7 +1573,7 @@ my.shape <- reactive({
     
     my.shape3
     
-  } else {
+  } else if  (input$spatialfile == "polygon"){
   
   filenames <- list.files(paste0(getwd(), "/Your Species Polygons"))
     
@@ -1572,6 +1586,21 @@ my.shape <- reactive({
       st_transform(crs = 4326)
     
     my.shape4
+    
+  } else {
+  
+  filenames <- list.files(paste0(getwd(), "/Your Species Points"))
+    
+    # get shapefile
+    my.file <- filenames[grep("shp$", filenames)]
+    
+    my.shape5  <-
+      st_read(paste0("Your Species Points/", my.file), quiet = TRUE) %>%
+      st_make_valid() %>%
+      st_transform(crs = 4326)
+    
+    my.shape5
+    
   }
     
 
@@ -1741,6 +1770,7 @@ my.map <- eventReactive(input$submit,
                             
                             
                           } else if (input$spatialfile == "polyline") {
+                            
                             my.species <-
                               my.shape() %>%
                               st_make_valid()
@@ -1802,7 +1832,8 @@ my.map <- eventReactive(input$submit,
                               )
                             
                             
-                          } else {
+                          } else if (input$spatialfile == "polygon") {
+                            
                             # work out if in or out
                             my.polygon <- my.shape()
                             my.polygon$present <-
@@ -1849,6 +1880,41 @@ my.map <- eventReactive(input$submit,
                               addPolylines(data = nearest_jump,
                                            color = "white",
                                            weight = 2) 
+                            
+                          } else {
+                            
+                             my.points <- my.shape() 
+                             
+                             # get nearest
+                            nearest <- st_nearest_feature(my.taxon(), my.points )
+                            
+                            # get distance
+                            dist <-
+                              st_distance(my.taxon(), my.points[nearest,], 
+                                          by_element = TRUE)
+                            
+                            # make line between points and 
+                            # nearest known location via loop
+                            
+                            my.feature <- list()
+                            
+                            for (i in 1:nrow(my.taxon())) {
+                              my.feature[[i]] <-
+                                st_nearest_points(my.taxon()[i, ],
+                                                  my.points[nearest[i], ]) %>%
+                                st_sf()
+                            }
+                            
+                            # nearest jump
+                            nearest_jump <- bind_rows(my.feature)
+                            
+                            
+                            loc.map() %>%
+                              addMarkers(data = my.points)%>%
+                              addPolylines(data = nearest_jump,
+                                           color = "white",
+                                           weight = 2) 
+                            
                             
                           }
                           
