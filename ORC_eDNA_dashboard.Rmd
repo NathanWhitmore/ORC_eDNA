@@ -197,7 +197,6 @@ date.id <- samples[, c("UID", "CollectionDate")]
 # add dates to record
 eDNA <- left_join(records, date.id, by = "UID")
 
-
 ```
 
 
@@ -245,10 +244,8 @@ basemap <- reactive({
   leaflet() %>%
     # add different provider tiles
     addProviderTiles("OpenStreetMap",
-                     # give the layer a name
                      group = "Open Street Map") %>%
     addProviderTiles("Esri.WorldImagery",
-                     # give the layer a name
                      group = "World") %>%
     addPolygons(
       data = my.clip.province(),
@@ -278,6 +275,7 @@ basemap <- reactive({
 ### Gridded map (10 sq km)
 
 ```{r}
+
 
 renderLeaflet ({
   # override any random origin of grid if it exists
@@ -315,7 +313,7 @@ renderLeaflet ({
   
   if (sum(inter$counted, na.rm = TRUE) > 0) {
     my.pal <-
-      colorNumeric(palette = "YlGnBu",
+      colorNumeric(palette = "Reds",
                    domain = inter$counted,
                    na.color = NA)
     
@@ -326,8 +324,9 @@ renderLeaflet ({
     
     leaflet() %>%
       # add different provider tiles
+      addProviderTiles("OpenStreetMap",
+                       group = "Open Street Map") %>%
       addProviderTiles("Esri.WorldImagery",
-                       # give the layer a name
                        group = "World") %>%
       addPolygons(
         data = inter,
@@ -344,18 +343,26 @@ renderLeaflet ({
         title = "Samples per 10 sq km",
         na.label = ""
       ) %>%
-      addMiniMap()
+      addMiniMap() %>%
+      addScaleBar(position = "topright",
+                  options = scaleBarOptions(imperial = FALSE))  %>%
+      addLayersControl(baseGroups = c("World", "Open Street Map"),
+                       position = "topleft")
     
   } else {
-    
     leaflet() %>%
       # add different provider tiles
+      addProviderTiles("OpenStreetMap",
+                       group = "Open Street Map") %>%
       addProviderTiles("Esri.WorldImagery",
-                       # give the layer a name
                        group = "World") %>%
       addPolygons(data = inter,
                   weight = 1,
-                  color = "white")
+                  color = "white") %>%
+      addScaleBar(position = "topright",
+                  options = scaleBarOptions(imperial = FALSE)) %>%
+      addLayersControl(baseGroups = c("World", "Open Street Map"),
+                       position = "topleft")
     
   }
   
@@ -421,7 +428,14 @@ my.spp <- reactive({
 
 ```
 
+<br/>
 
+**Legend**
+
+Blue pins = presence recorded
+White circles = absence recorded 
+
+*Note: circles transparency relates to number of records.*
 
 
 ```{r}
@@ -447,7 +461,27 @@ my.coord <- reactive ({
 
 ```
 
+<br/>
 
+**Download data**
+
+```{r}
+# Create placeholder for the download button
+uiOutput("downloadtaxUI")
+```
+
+```{r, echo = FALSE}
+output$downloadtaxUI <- renderUI( {
+  downloadButton("downtaxBtn", "Sample data", style = "width:100%;")
+})
+
+output$downtaxBtn <- downloadHandler(
+  filename = function() {'Name your by taxonomy file.csv'},
+  content = function(file) {
+    write.csv(my.species.coord.tax(), file, row.names = FALSE)
+  }
+)
+```
 
 
 Row {data-height=75}
@@ -525,14 +559,33 @@ loc.map <- reactive({
   
   req(input$Taxon)
   
-  
   # visualise site locations
-  
   basemap() %>%
+   addMiniMap()
+  
+})
+  
+
+```
+
+
+
+```{r}
+renderLeaflet({
+  
+  req(input$Taxon)
+  
+  loc.map() %>%   
     addCircleMarkers(
-      data = my.taxon() ,
-      color = "red",
+      data = site.locations(),
+      color = "white",
       fillOpacity = 0.01,
+      radius = 10
+    ) %>%
+   addMarkers(
+      data = my.taxon() ,
+      #color = "red",
+      #fillOpacity = 0.01,
       popup = paste(
         "Date:",
         my.taxon()$collection_date,
@@ -549,27 +602,7 @@ loc.map <- reactive({
         "RID:",
         my.taxon()$rid,
         "<br>"
-      )
-    ) %>%
-   addMiniMap()
-  
-})
-  
-
-```
-
-
-
-```{r}
-renderLeaflet({
-  
-  loc.map() %>%   
-    addCircleMarkers(
-      data = site.locations(),
-      color = "white",
-      fillOpacity = 0.01,
-      radius = 10
-    ) %>%
+      )) %>%
     addScaleBar(position = "topright",
               options = scaleBarOptions(imperial = FALSE)) 
   
@@ -647,24 +680,51 @@ renderDataTable({
 
 
 ```{r}
+# make by taxonomy table
+
+
+my.species.coord.tax <- reactive({
+  temp <- my.taxon()
+  my.coord <- st_coordinates(temp)
+  st_geometry(temp) <- NULL
+  my.species.coord.tax <- cbind(temp, my.coord) %>%
+    rename(lat = Y, long = X)
+  
+  my.species.coord.tax <- my.species.coord.tax %>%
+    select(
+      phylum,
+      class,
+      order,
+      genus,
+      species,
+      common_name,
+      group,
+      client_sample_id,
+      collection_date,
+      lat,
+      long,
+      count,
+      hid,
+      uid
+    )
+  
+  my.species.coord.tax
+})
 
 renderDataTable({
-  
   req(input$Taxon)
   
-    temp <- my.taxon()
-    my.coord <- st_coordinates(temp)
-    st_geometry(temp) <- NULL
-    my.species.coord <- cbind(temp, my.coord) %>% 
-      rename(lat = Y, long = X)
-
   
-    datatable(my.species.coord, 
-                  options = list(filter = "none",
-                  scroll = TRUE, "pageLength" = 8))
-
   
-    
+  datatable(my.species.coord.tax(),
+            options = list(
+              filter = "none",
+              scrollX = TRUE,
+              "pageLength" = 8
+            ))
+  
+  
+  
 })
 
 ```
@@ -749,7 +809,7 @@ By threat status
 Column {.sidebar}
 -----------------------------------------------------------------------
 
-Choose group to investigate:
+Choose group to filter:
 
 ```{r}
 # choose 
@@ -761,6 +821,8 @@ renderUI({
               selected = "Fish")
 })
 ```
+
+*Note: if no species are found in the NZTCS excel file provided the drop-down menu below will be blank and no map will be rendered*
 
 ```{r}
 # category drop down
@@ -799,16 +861,18 @@ my.category <- reactive({
 
 renderUI({
   
-    req(input$category)
-
-conditionalPanel(
-  condition = "input.category == 'Threatened'",
+  req(input$category)
   
-  selectInput("status",
-              label = "Threat status",
-              choices = sort(unique(my.category()$Status)),
-              selected = "Not Threatened")
-  
+  conditionalPanel(
+    condition = "input.category == 'Threatened'",
+    
+    selectInput(
+      "status",
+      label = "Threat status",
+      choices = sort(unique(my.category()$Status)),
+      selected = "Not Threatened"
+    )
+    
   )
   
 })
@@ -820,13 +884,62 @@ my.status <- reactive({
   
   my.nztcs()  %>% filter(Status == input$status)
   
-  
 })
 
 ```
 
 
+<br/>
 
+**Download**
+
+```{r}
+# Create placeholder for the download button
+uiOutput("download_filter_UI")
+
+output$download_filter_UI <- renderUI( {
+  downloadButton("down_filter_Btn", "Filtered species", style = "width:100%;")
+})
+
+output$down_filter_Btn <- downloadHandler(
+  filename = function() {'Name your by threat listing species file.csv'},
+  content = function(file) {
+    write.csv(my.species.coord.tax(), file, row.names = FALSE)
+  }
+)
+```
+
+```{r}
+# Create placeholder for the download button
+uiOutput("download_unmatched_UI")
+
+output$download_unmatched_UI <- renderUI( {
+  downloadButton("down_unmatched_Btn", "Unmatched species", style = "width:100%;")
+})
+
+output$down_unmatched_Btn <- downloadHandler(
+  filename = function() {'Name your by threat listing unmatched species file.csv'},
+  content = function(file) {
+    write.csv(my.incompletes(), file, row.names = FALSE)
+  }
+)
+```
+
+```{r}
+# Create placeholder for the download button
+uiOutput("download_summary_UI")
+
+output$download_summary_UI <- renderUI( {
+  downloadButton("down_summary_Btn", "Summary", style = "width:100%;")
+})
+
+output$down_summary_Btn <- downloadHandler(
+  filename = function() {'Name your by threat listing summary file.csv'},
+  content = function(file) {
+    write.csv(nztcs_summary(), file, row.names = FALSE)
+  }
+)
+```
 
 Row {.tabset .tabset-fade}
 -------------------------------------
@@ -869,26 +982,38 @@ renderLeaflet({
 ```
 
 
-### Species in your selection
+### Species in your filter
 
 
 ```{r}
 # summary
 
-renderDataTable({
+
+species.in.your.filter <- reactive({
   
-  req(input$category)
-  
-  if(input$category == "Threatened"){
-  
-  my.status() %>% group_by(species, Category, Status) %>% tally()
+  if (input$category == "Threatened") {
+    temp_status <- my.status() %>%
+      group_by(species, Category, Status) %>%
+      summarise(instances = n())
+    st_geometry(temp_status) <- NULL
+    temp_status
     
   } else {
-    
-   my.category() %>% group_by(species, Category, Status)  %>% tally()
-    
+    temp_category <- my.category() %>%
+      group_by(species, Category, Status) %>%
+      summarise(instances = n())
+    st_geometry(temp_category) <- NULL
+    temp_category
   }
-    
+  
+  
+})
+
+renderDataTable({
+  req(input$category)
+  
+  species.in.your.filter()
+  
 })
 ```
 
@@ -897,22 +1022,28 @@ renderDataTable({
 These samples do not have a NZTCS listing:
 
 ```{r}
-renderDataTable({
+my.incompletes <- reactive({
   
-  req(input$category)
-  
-  my.incompletes <- my.nztcs()[!complete.cases(my.nztcs()$Category), ] %>%
+  my.incompletes <-
+    my.nztcs()[!complete.cases(my.nztcs()$Category),] %>%
     as.data.frame()
   
   my.incompletes <- my.incompletes %>%
-    select(c("phylum", "class" ,"order", "family" ,"genus","species")) %>%
+    select(c("phylum", "class" , "order", "family" , "genus", "species")) %>%
     distinct()
+  my.incompletes
+})
+
+
+renderDataTable({
+  req(input$category)
   
-  
-  
-   datatable(my.incompletes, 
-                  options = list(filter = "none",
-                  scrollX = TRUE, "pageLength" = 15))
+  datatable(my.incompletes(),
+            options = list(
+              filter = "none",
+              scrollX = TRUE,
+              "pageLength" = 15
+            ))
   
 })
 ```
@@ -920,13 +1051,16 @@ renderDataTable({
 ### Summary (all categories & statuses)
 
 ```{r}
-renderDataTable({
+
+nztcs_summary <- reactive({
   
   req(input$category)
   
   interim <-
-    my.nztcs() %>% group_by(species, Category, Status)  %>% tally()
-  interim <- interim %>% group_by(Category, Status) %>% tally()
+    my.nztcs() %>% group_by(species, Category, Status)  %>%
+    summarise(species = n())
+  interim <- interim %>% group_by(Category, Status) %>% 
+    summarise(species = n())
   
   st_geometry(interim) <- NULL
   
@@ -934,9 +1068,17 @@ renderDataTable({
   interim$Category <-
     ifelse(is.na(interim$Category), "No match in NZTCS", interim$Category)
   interim$Status <-
-    ifelse(is.na(interim$Status), "No match in NZTCS", interim$Category)
+    ifelse(is.na(interim$Status), "No match in NZTCS", interim$Status)
+  interim
   
-  datatable(interim,
+})
+
+
+renderDataTable({
+  
+  req(input$category)
+  
+  datatable(nztcs_summary(),
             options = list(
               filter = "none",
               scrollX = TRUE,
@@ -1016,7 +1158,6 @@ sp.file <- eventReactive(input$mymap_draw_new_feature,{
 
 
 ```{r}
-
 renderUI({
   
   # round to nearest 10
@@ -1039,27 +1180,6 @@ renderUI({
 ```
 
 *Note: When drawing a new polygon please allow a short period of time for the plot to render using the new data.*
-
-**Download filtered data**
-
-```{r}
-# Create placeholder for the download button
-uiOutput("downloadUI")
-```
-
-```{r, echo = FALSE}
-output$downloadUI <- renderUI( {
-  downloadButton("downBtn", "Download csv data", style = "width:100%;")
-})
-
-output$downBtn <- downloadHandler(
-  filename = function() {'Name your file.csv'},
-  content = function(file) {
-    write.csv(final(), file, row.names = FALSE)
-  }
-)
-```
-
 
 
 Row {.tabset .tabset-fade}
@@ -1135,7 +1255,9 @@ output$mymap <- renderLeaflet({
         color = "white"
       ) %>%
       addPolygons(data = site.polygon, color = "white") %>%
-      addMiniMap()
+      addMiniMap() %>%
+      addScaleBar(position = "topright",
+              options = scaleBarOptions(imperial = FALSE)) 
     
     
     
@@ -1152,7 +1274,6 @@ output$mymap <- renderLeaflet({
       addProviderTiles("Stamen.Terrain",
                        # give the layer a name
                        group = "Terrain") %>%
-      
       
       addPolygons(
         data = my.clip.province(),
@@ -1185,7 +1306,9 @@ output$mymap <- renderLeaflet({
       ) %>%
       
       addMarkers(data = site.locations()) %>%
-      addMiniMap()
+      addMiniMap() %>%
+      addScaleBar(position = "topright",
+              options = scaleBarOptions(imperial = FALSE)) 
     
   }
   
@@ -1409,7 +1532,9 @@ renderLeaflet({
   # visualise site locations
   basemap() %>%
     addCircleMarkers(data = clust.map, color = ~ beatCol(groups)) %>%
-    addMiniMap()
+    addMiniMap() %>%
+    addScaleBar(position = "topright",
+              options = scaleBarOptions(imperial = FALSE)) 
     
 
 })
@@ -1693,7 +1818,7 @@ actionButton("submit", label = "Activate")
 
 <br/>
 
-**Download csv of aberrant entries**
+**Download**
 
 ```{r}
 # Create placeholder for the download button
@@ -1702,7 +1827,7 @@ uiOutput("downloadfish")
 
 ```{r, echo = FALSE}
 output$downloadfish <- renderUI( {
-  downloadButton("downBtnfish", "Download csv", style = "width:100%;")
+  downloadButton("downBtnfish", "Aberrant entries", style = "width:100%;")
 })
 
 output$downBtnfish <- downloadHandler(
@@ -1729,7 +1854,6 @@ Row {.tabset .tabset-fade}
 my.map <- eventReactive(input$submit,
                         {
                            nearest <- NULL
-                          
                           
                           if (input$spatialfile == "nmfish") {
                             non.mig.sp <-
@@ -1867,7 +1991,7 @@ my.map <- eventReactive(input$submit,
                             loc.map() %>%
                               addPolygons(
                                 data = my.polygon,
-                                fillColor = ~ present,
+                                fillColor = "white",
                                 color = "white",
                                 weight = 1,
                                 fillOpacity = 0.3,
