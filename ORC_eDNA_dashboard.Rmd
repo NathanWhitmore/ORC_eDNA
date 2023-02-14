@@ -904,7 +904,7 @@ output$download_filter_UI <- renderUI( {
 output$down_filter_Btn <- downloadHandler(
   filename = function() {'Name your by threat listing species file.csv'},
   content = function(file) {
-    write.csv(my.species.coord.tax(), file, row.names = FALSE)
+    write.csv(species.in.your.filter(), file, row.names = FALSE)
   }
 )
 ```
@@ -1885,6 +1885,10 @@ my.map <- eventReactive(input$submit,
                             
                             
                             loc.map() %>%
+                              addCircleMarkers(data = my.taxon(),
+                                               color = "red",
+                                               fillOpacity = 0.01,
+                                               radius = 10) %>%
                               addPolylines(data = nearest_jump,
                                            color = "white",
                                            weight = 2) %>%
@@ -1924,6 +1928,10 @@ my.map <- eventReactive(input$submit,
                             
                             
                             loc.map() %>%
+                              addCircleMarkers(data = my.taxon(),
+                                               color = "red",
+                                               fillOpacity = 0.01,
+                                               radius = 10) %>%
                               addPolylines(data = nearest_jump,
                                            color = "white",
                                            weight = 2) %>%
@@ -1941,6 +1949,10 @@ my.map <- eventReactive(input$submit,
                               ifelse(my.catchment$present == TRUE, "red", "black")
                             
                             loc.map() %>%
+                              addCircleMarkers(data = my.taxon(),
+                                               color = "red",
+                                               fillOpacity = 0.01,
+                                               radius = 10) %>%
                               addPolygons(
                                 data = my.catchment,
                                 fillColor = ~ present,
@@ -1989,6 +2001,10 @@ my.map <- eventReactive(input$submit,
                             nearest_jump <- bind_rows(my.feature)
                             
                             loc.map() %>%
+                              addCircleMarkers(data = my.taxon(),
+                                               color = "red",
+                                               fillOpacity = 0.01,
+                                               radius = 10) %>%
                               addPolygons(
                                 data = my.polygon,
                                 fillColor = "white",
@@ -2034,7 +2050,12 @@ my.map <- eventReactive(input$submit,
                             
                             
                             loc.map() %>%
-                              addMarkers(data = my.points)%>%
+                               addCircleMarkers(data = my.taxon(),
+                                               color = "red",
+                                               fillOpacity = 0.01,
+                                               radius = 10) %>%
+                              addCircleMarkers(data = my.points, 
+                                               color = "yellow") %>%
                               addPolylines(data = nearest_jump,
                                            color = "white",
                                            weight = 2) 
