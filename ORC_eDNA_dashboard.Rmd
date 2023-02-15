@@ -828,6 +828,8 @@ renderUI({
 # category drop down
 renderUI({
   
+  req(input$layname)
+  
   my.selection <- my.nztcs()
   st_geometry(my.selection) <- NULL
   
@@ -1640,21 +1642,28 @@ radioButtons(
 
 ```{r}
 # base species is reactive to ensure it corresponds with data
-base_species <- eventReactive(input$submit,
-                              {
-                                input$Taxon
-                              })
-
 
 renderUI({
   
-  base_species()
+  input$Taxon
   
 })
 ```
 
+```{r}
+# species choices for catchment
 
+renderUI({
+  conditionalPanel(
+    condition = "input.spatialfile != 'nmfish'",
+    
+    textInput("sp.name",
+              label = HTML("<b>Name comparison species</b>"),
+              value = "Write here")
+  )
+})
 
+```
 
 ```{r}
 # my.shape determined by user selection
@@ -1728,8 +1737,6 @@ my.shape <- reactive({
     
   }
     
-
-  
 })
 ```
 
@@ -1762,7 +1769,6 @@ renderUI({
                                choices = catchment.choices()))
   
 })
-
 ```
 
 
@@ -1785,7 +1791,7 @@ renderUI({
   conditionalPanel(condition = "input.spatialfile == 'nmfish'",
                    
                    selectInput("non.mig.sp",
-                               label = "Species for comparison:",
+                               label = HTML("<b>Comparison species</b>"),
                                choices = non.mig.choices()))
   
 })
@@ -1794,19 +1800,32 @@ renderUI({
 # distance threshold for nmfish
 renderUI({
   conditionalPanel(
-    condition = "input.spatialfile == 'nmfish' |
-    input.spatialfile == 'polyline'"  ,
+    condition = "input.spatialfile != 'catchment'",
     
-    numericInput("aberrant", label = "Distance threshold for aberrant result (nearest m)", value = 1000)
+    numericInput("aberrant", 
+                 label = HTML("<b>Distance threshold for aberrant result, (km) </b>")
+                 , value = 0.250)
   )
   
 })
 ```
   
 
-**Write note for csv file**
+
 ```{r}
-textInput("notes", label = "", value = "Enter text...")
+# Write note for csv file
+
+renderUI({
+  conditionalPanel(
+    condition = "input.spatialfile != 'catchment'",
+    
+    numericInput("notes", 
+                 label = HTML("Write note for csv file"),
+                                       value = "Enter text...")
+    )
+  
+})  
+  
 ```
 
 <br/>
@@ -2086,9 +2105,7 @@ renderLeaflet ({
 aberrant <- eventReactive(input$submit,
                        {
   
- if (input$spatialfile == "nmfish" |
-     input$spatialfile == "polyline"|
-     input$spatialfile == "polygon" ){
+ if (input$spatialfile != "catchment") {
    
    if (input$spatialfile == "nmfish") {
      
@@ -2096,7 +2113,7 @@ aberrant <- eventReactive(input$submit,
      filter(Species == input$non.mig.sp) %>% 
      st_make_valid()
    
-   } else {
+   } else if (input$spatialfile != "nmfish"){
      
     my.selected.species <- my.shape() %>% 
      st_make_valid()
@@ -2126,8 +2143,8 @@ aberrant <- eventReactive(input$submit,
     # return crs to longlate
     aberrant <- aberrant %>% st_transform(crs = 4326)
     
-    # distance
-    aberrant$dist.m <- as.numeric(dist.m)
+    # distance: change to km
+    aberrant$dist.km <- as.numeric(dist.m)/1000
     
     # long lat
     longlat <- st_coordinates(aberrant) %>% as.data.frame()
@@ -2140,10 +2157,10 @@ aberrant <- eventReactive(input$submit,
     aberrant <- cbind(aberrant, longlat)
     
     # add notes
-    aberrant$notes  <- ifelse(aberrant$dist.m >= input$aberrant, input$notes, NA)
+    aberrant$notes  <- ifelse(aberrant$dist.km >= input$aberrant, input$notes, NA)
     
     # filter by distance
-    aberrant <- aberrant %>% filter(dist.m >= input$aberrant)
+    aberrant <- aberrant %>% filter(dist.km >= input$aberrant)
     
     # remove unwanted columns 
     aberrant <- aberrant[, -c(1:4)]
