@@ -949,6 +949,42 @@ output$down_summary_Btn <- downloadHandler(
 )
 ```
 
+
+
+```{r}
+radioButtons(
+  "assign",
+  label = HTML("<b>Do you want to assign unmatched species to a threat listing?</b>"),
+  choices = list("No" = "No", 
+                 "Yes" = "Yes"),
+  selected = "No"
+)
+```
+
+```{r}
+
+renderUI({    
+    selectInput("assign.species",
+            label = "Select species",
+            choices = unique(my.incompletes()$species))
+})
+
+renderUI({
+    selectInput("assign.category",
+            label = "New category",
+            choices = unique(nztcs$Category))
+})
+
+renderUI({    
+    selectInput("assign.stat",
+            label = "New Status",
+            choices = unique(nztcs$Status))
+})
+    
+
+```
+
+
 Row {.tabset .tabset-fade}
 -------------------------------------
 
@@ -1096,7 +1132,9 @@ renderDataTable({
 })
 ```
 
-### Reassign unmatched species
+### fhfh
+
+
 ```{r}
 radioButtons(
   "assign",
@@ -1108,25 +1146,56 @@ radioButtons(
 ```
 
 ```{r}
-renderUI({
-  conditionalPanel(
-    condition = "input.assign == 'Yes'",
-    
-    textInput("sp.assign",
-              label = HTML("<b>Species name (must match 'Unmatched eDNA samples')</b>"),
-              value = "Species Name")
-  )
+
+
+renderUI({    
+    selectInput("assign.species",
+            label = "Select species",
+            choices = unique(my.incompletes()$species))
 })
 
 
-v <- reactiveValues(data = { 
-        data.frame(x = numeric(0),y = numeric(0)) %>% 
-            add_row(x = rep(0,10),y = rep(0,10))
-    })
+renderUI({ 
+    selectInput("assign.category",
+            label = "New category",
+            choices = unique(nztcs$Category))
+})
 
-renderDT({
-        DT::datatable(v$data, editable = TRUE)
-    })
+  renderUI({ 
+    selectInput("assign.stat",
+            label = "New Status",
+            choices = unique(nztcs$Status))
+})
+
+
+    
+```
+
+### somethink else
+
+```{r}
+renderDataTable({
+  
+  my.new <- my.incompletes()[,-c(1:4)]
+  my.new$Category <- NA
+  my.new$Status <- NA
+
+    
+      datatable(my.new,editable = TRUE,
+            options = list(
+              filter = "none",
+              scrollX = TRUE,
+              "pageLength" = 15
+              
+            )
+    
+  )
+    
+
+})
+
+
+
 ```
 
 
@@ -2297,3 +2366,6 @@ renderPrint({
 })  
   
 ```
+
+
+
