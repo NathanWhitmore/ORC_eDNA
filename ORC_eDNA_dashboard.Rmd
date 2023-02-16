@@ -410,7 +410,7 @@ renderUI({
   selectInput("Taxon",
               label = str_to_title(input$Classification),
               choices = sort(unique(choices)),
-              selected = "Galaxias gollumoides")
+)
   
 })
 
@@ -498,8 +498,7 @@ percentage_of_locations <- reactive({
 
 
 renderGauge({
-  
-  req(my.sf.coord(), my.coord(), percentage_of_locations())
+  # req(my.sf.coord(), my.coord(), percentage_of_locations())
   
 gauge(percentage_of_locations(), min = 0, max = 100,  symbol = '%',
     gaugeSectors(colors = "#f93b25"))
@@ -518,8 +517,6 @@ no_of_actual_sites <- reactive({
 
 renderValueBox({
   
-  req(input$Taxon)
-
   valueBox(no_of_actual_sites(), color = " #7dcea0")
   
 })
@@ -532,14 +529,15 @@ renderValueBox({
 
 no_dates <- reactive({
   
+  req(input$Taxon)
+  
   length(unique(my.taxon()$collection_date))
   
 })
 
 renderValueBox({
   
-  req(input$Taxon)
-  
+
   valueBox(no_dates(),  color = "#7fb3d5")
   
 })
@@ -572,17 +570,16 @@ loc.map <- reactive({
 
 ```{r}
 renderLeaflet({
-  
   req(input$Taxon)
   
-  loc.map() %>%   
+  loc.map() %>%
     addCircleMarkers(
       data = site.locations(),
       color = "white",
       fillOpacity = 0.01,
       radius = 10
     ) %>%
-   addMarkers(
+    addMarkers(
       data = my.taxon() ,
       #color = "red",
       #fillOpacity = 0.01,
@@ -602,9 +599,18 @@ renderLeaflet({
         "RID:",
         my.taxon()$rid,
         "<br>"
-      )) %>%
+      )
+    ) %>%
     addScaleBar(position = "topright",
-              options = scaleBarOptions(imperial = FALSE)) 
+                options = scaleBarOptions(imperial = FALSE)) %>%
+    addMeasure(
+      position = "bottomleft",
+      primaryLengthUnit = "kilometers",
+      primaryAreaUnit = "ha",
+      activeColor = "lightyellow",
+      completedColor = "orange"
+    ) %>%
+    addMiniMap()
   
 })
 ```
@@ -1088,6 +1094,39 @@ renderDataTable({
             ))
   
 })
+```
+
+### Reassign unmatched species
+```{r}
+radioButtons(
+  "assign",
+  label = HTML("<b>Do you want to assign unmatched species to a threat listing?</b>"),
+  choices = list("No" = "No", 
+                 "Yes" = "Yes"),
+  selected = "No"
+)
+```
+
+```{r}
+renderUI({
+  conditionalPanel(
+    condition = "input.assign == 'Yes'",
+    
+    textInput("sp.assign",
+              label = HTML("<b>Species name (must match 'Unmatched eDNA samples')</b>"),
+              value = "Species Name")
+  )
+})
+
+
+v <- reactiveValues(data = { 
+        data.frame(x = numeric(0),y = numeric(0)) %>% 
+            add_row(x = rep(0,10),y = rep(0,10))
+    })
+
+renderDT({
+        DT::datatable(v$data, editable = TRUE)
+    })
 ```
 
 
