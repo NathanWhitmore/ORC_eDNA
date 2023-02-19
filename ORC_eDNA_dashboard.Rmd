@@ -498,7 +498,6 @@ percentage_of_locations <- reactive({
 
 
 renderGauge({
-  # req(my.sf.coord(), my.coord(), percentage_of_locations())
   
 gauge(percentage_of_locations(), min = 0, max = 100,  symbol = '%',
     gaugeSectors(colors = "#f93b25"))
@@ -510,6 +509,8 @@ gauge(percentage_of_locations(), min = 0, max = 100,  symbol = '%',
 ```{r}
 
 no_of_actual_sites <- reactive({
+  
+  req(input$Taxon)
   
   length(unique(my.sf.coord()$xy))
   
@@ -529,18 +530,20 @@ renderValueBox({
 
 no_dates <- reactive({
   
-  req(input$Taxon)
+  
   
   length(unique(my.taxon()$collection_date))
   
 })
 
+
 renderValueBox({
   
-
   valueBox(no_dates(),  color = "#7fb3d5")
   
 })
+  
+
 ```
 
 
