@@ -530,8 +530,6 @@ renderValueBox({
 
 no_dates <- reactive({
   
-  
-  
   length(unique(my.taxon()$collection_date))
   
 })
@@ -964,27 +962,52 @@ radioButtons(
 )
 ```
 
-```{r}
 
-renderUI({    
-    selectInput("assign.species",
-            label = "Select species",
-            choices = unique(my.incompletes()$species))
+There will likely be many occasions in which the eDNA records don't match the NZTCS due to differences in the way that the species names are recorded.
+
+This tab allows on-the-fly re-allocation of a species to a particular user described threat listing. This will result in an updated *summary* table.
+
+More permanent methods would be to edit the parent NZTCS file or ask Wilderlab to reformat the species name.
+
+
+```{r}
+renderUI({
+  selectInput(
+    "assign.species",
+    label = "Select species",
+    choices = unique(my.incompletes()$species)
+  )
 })
 
 renderUI({
-    selectInput("assign.category",
-            label = "New category",
-            choices = unique(nztcs$Category))
+  selectInput("assign.cat",
+              label = "New category",
+              choices = unique(nztcs$Category))
 })
 
-renderUI({    
-    selectInput("assign.stat",
-            label = "New Status",
-            choices = unique(nztcs$Status))
+renderUI({
+  selectInput("assign.statx",
+              label = "New status",
+              choices = unique(nztcs$Status))
 })
-    
 
+
+# Create a button for the user to submit the input
+actionButton("submit_table", "Submit")
+
+```
+
+**In event of a mistake please choose a row to remove**
+
+```{r}
+renderUI({ 
+    selectInput("remove.row",
+            label = "Remove row",
+            choices = c("No rows to remove", 1:nrow(entries$df)))
+})
+
+# Create a button for the user to submit the input
+actionButton("submit_remove", "Remove row")
 ```
 
 
@@ -1106,6 +1129,7 @@ nztcs_summary <- reactive({
   interim <-
     my.nztcs() %>% group_by(species, Category, Status)  %>%
     summarise(species = n())
+  
   interim <- interim %>% group_by(Category, Status) %>% 
     summarise(species = n())
   
@@ -1116,6 +1140,9 @@ nztcs_summary <- reactive({
     ifelse(is.na(interim$Category), "No match in NZTCS", interim$Category)
   interim$Status <-
     ifelse(is.na(interim$Status), "No match in NZTCS", interim$Status)
+  
+  colnames(interim) <- c("Category", "Status", "Species")
+  
   interim
   
 })
@@ -1123,7 +1150,7 @@ nztcs_summary <- reactive({
 
 renderDataTable({
   
-  req(input$category)
+  # req(input$category)
   
   datatable(nztcs_summary(),
             options = list(
@@ -1135,71 +1162,134 @@ renderDataTable({
 })
 ```
 
-### fhfh
 
+### Select species
 
 ```{r}
-radioButtons(
-  "assign",
-  label = HTML("<b>Do you want to assign unmatched species to a threat listing?</b>"),
-  choices = list("No" = "No", 
-                 "Yes" = "Yes"),
-  selected = "No"
+# Create a reactive object to store the entries
+entries <- reactiveValues(
+  
+  df = data.frame(species = character(), 
+                  category = character(), 
+                  status = character())
 )
-```
-
-```{r}
 
 
-renderUI({    
-    selectInput("assign.species",
-            label = "Select species",
-            choices = unique(my.incompletes()$species))
+# Update reactive object with each new entry
+observeEvent(input$submit_table, {
+  
+  new_entry <- data.frame(species = input$assign.species, 
+                    category = input$assign.cat,
+                    status = input$assign.statx)
+  entries$df <- rbind(entries$df, new_entry)
+  
 })
 
-
-renderUI({ 
-    selectInput("assign.category",
-            label = "New category",
-            choices = unique(nztcs$Category))
-})
-
-  renderUI({ 
-    selectInput("assign.stat",
-            label = "New Status",
-            choices = unique(nztcs$Status))
-})
-
-
-    
-```
-
-### somethink else
-
-```{r}
 renderDataTable({
   
-  my.new <- my.incompletes()[,-c(1:4)]
-  my.new$Category <- NA
-  my.new$Status <- NA
-
-    
-      datatable(my.new,editable = TRUE,
+  datatable( entries$df,
             options = list(
               filter = "none",
               scrollX = TRUE,
               "pageLength" = 15
-              
-            )
-    
-  )
-    
+            ))
 
 })
 
 
+observeEvent(input$submit_remove, {
+  
+  if(input$remove.row == "No rows to remove"){
+    
+    entries$df
+    
+  } else {
+  
+  entries$df <- entries$df[-as.numeric(input$remove.row), ]
+  rownames(entries$df) <- 1: nrow(entries$df)
+  }
+})
 
+new.table <- reactive({
+  
+  # new table
+  my.temp.sum <- entries$df %>% 
+    group_by(category, status)  %>%
+    summarise(species = n()) 
+  
+  colnames(my.temp.sum) <- c("Category", "Status", "Species")
+  
+  # old table
+  not.unmatched <- nztcs_summary() %>% 
+    filter(Category != "No match in NZTCS")
+  
+  colnames(not.unmatched) <- c("Category", "Status", "Species")
+  
+  
+  # combine with new table
+ my.temp.sum
+  
+  #unmatched <- nztcs_summary %>% filter(category == "No match in NZTCS")
+
+})
+
+renderPrint({
+  
+  new.table()
+  
+})
 ```
+
+### Species
+
+```{r}
+
+my.temp.sum <- reactive({
+  
+  my.temp.sum <- entries$df %>% 
+    group_by(category, status)  %>%
+    summarise(species = n())
+  
+  # rename to match
+  colnames(my.temp.sum) <- c("Category", "Status", "Species")
+  
+  my.temp.sum
+  
+})
+
+renderPrint({
+  
+  my.temp.sum()
+  
+  
+})
+```
+
+### joined
+
+```{r}
+renderPrint({
+  
+nztcs_summary.renamed <-   nztcs_summary() %>%
+  filter(Category != "No match in NZTCS ")
+
+
+no.matches <-   nztcs_summary() %>%
+  filter(Category == "No match in NZTCS ")
+
+
+my.new <- bind_rows(nztcs_summary.renamed, no.matches, my.temp.sum())
+
+refer <- which(my.new$Category== "No match in NZTCS")
+
+my.new[refer, 3] <- my.new[refer, 3] - sum(my.temp.sum()$Species)
+
+my.new
+  
+})
+```
+
+
 
 
 By spatial
@@ -2369,6 +2459,5 @@ renderPrint({
 })  
   
 ```
-
 
 
