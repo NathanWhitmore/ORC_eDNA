@@ -414,18 +414,6 @@ renderUI({
   
 })
 
-
-# reactive species/subspecies choices
-
-my.spp <- reactive({
-  x <- as.character(input$Classification)
-  
-  eDNA_my_prov_sf() %>% 
-    filter(eval(str2expression(x)) == input$Taxon)
-  
-})
-
-
 ```
 
 <br/>
@@ -510,7 +498,7 @@ gauge(percentage_of_locations(), min = 0, max = 100,  symbol = '%',
 
 no_of_actual_sites <- reactive({
   
-  req(input$Taxon)
+  
   
   length(unique(my.sf.coord()$xy))
   
@@ -530,7 +518,7 @@ renderValueBox({
 
 no_dates <- reactive({
   
-  length(unique(my.taxon()$collection_date))
+   length(unique(my.taxon()$collection_date))
   
 })
 
@@ -556,11 +544,9 @@ Row {.tabset .tabset-fade}
 
 loc.map <- reactive({
   
-  req(input$Taxon)
-  
   # visualise site locations
   basemap() %>%
-   addMiniMap()
+  addMiniMap()
   
 })
   
@@ -950,24 +936,22 @@ output$down_summary_Btn <- downloadHandler(
 )
 ```
 
+<br/>
 
 
-```{r}
-radioButtons(
-  "assign",
-  label = HTML("<b>Do you want to assign unmatched species to a threat listing?</b>"),
-  choices = list("No" = "No", 
-                 "Yes" = "Yes"),
-  selected = "No"
-)
-```
+<hr>
+<hr>
 
+**On-the-fly revision**
 
 There will likely be many occasions in which the eDNA records don't match the NZTCS due to differences in the way that the species names are recorded.
 
-This tab allows on-the-fly re-allocation of a species to a particular user described threat listing. This will result in an updated *summary* table.
+* Choose the species you want to reallocate from the list below.
+* Choose the category and status (note: familiarity with NZTCS is assumed)
+* Click *Confirm selection* to build table
+* Multiple entries are permissible (rows can be removed too)
 
-More permanent methods would be to edit the parent NZTCS file or ask Wilderlab to reformat the species name.
+(More permanent methods would be to edit the parent NZTCS file or ask Wilderlab to reformat the species name).
 
 
 ```{r}
@@ -975,27 +959,29 @@ renderUI({
   selectInput(
     "assign.species",
     label = "Select species",
-    choices = unique(my.incompletes()$species)
+    choices = sort(unique(my.incompletes()$species))
   )
 })
 
 renderUI({
   selectInput("assign.cat",
               label = "New category",
-              choices = unique(nztcs$Category))
+              choices = sort(unique(nztcs$Category)))
 })
 
 renderUI({
   selectInput("assign.statx",
               label = "New status",
-              choices = unique(nztcs$Status))
+              choices = sort(unique(nztcs$Status)))
 })
 
 
 # Create a button for the user to submit the input
-actionButton("submit_table", "Submit")
+actionButton("submit_table", "Confirm selection")
 
 ```
+
+<br/>
 
 **In event of a mistake please choose a row to remove**
 
@@ -1010,6 +996,25 @@ renderUI({
 actionButton("submit_remove", "Remove row")
 ```
 
+<br/>
+
+**Download**
+
+```{r}
+# Create placeholder for the download button
+uiOutput("download_flysummary_UI")
+
+output$download_flysummary_UI <- renderUI( {
+  downloadButton("down_flysummary_Btn", "On-the-fly summary", style = "width:100%;")
+})
+
+output$down_flysummary_Btn <- downloadHandler(
+  filename = function() {'Name your on-the-fly threat listing summary file.csv'},
+  content = function(file) {
+    write.csv(on_the_fly(), file, row.names = FALSE)
+  }
+)
+```
 
 Row {.tabset .tabset-fade}
 -------------------------------------
@@ -1075,7 +1080,6 @@ species.in.your.filter <- reactive({
     st_geometry(temp_category) <- NULL
     temp_category
   }
-  
   
 })
 
@@ -1143,6 +1147,7 @@ nztcs_summary <- reactive({
   
   colnames(interim) <- c("Category", "Status", "Species")
   
+  interim <- interim %>% arrange(Category, Status, Species)
   interim
   
 })
@@ -1163,7 +1168,7 @@ renderDataTable({
 ```
 
 
-### Select species
+### On-the-fly revision
 
 ```{r}
 # Create a reactive object to store the entries
@@ -1203,6 +1208,12 @@ observeEvent(input$submit_remove, {
     
     entries$df
     
+  } else if(input$remove.row == "1" & nrow(entries$df)==1) {
+    
+    entries$df <- data.frame(species = character(), 
+                            category = character(), 
+                            status = character())
+    
   } else {
   
   entries$df <- entries$df[-as.numeric(input$remove.row), ]
@@ -1225,11 +1236,10 @@ new.table <- reactive({
   
   colnames(not.unmatched) <- c("Category", "Status", "Species")
   
-  
   # combine with new table
  my.temp.sum
   
-  #unmatched <- nztcs_summary %>% filter(category == "No match in NZTCS")
+
 
 })
 
@@ -1240,7 +1250,6 @@ renderPrint({
 })
 ```
 
-### Species
 
 ```{r}
 
@@ -1257,34 +1266,45 @@ my.temp.sum <- reactive({
   
 })
 
-renderPrint({
-  
-  my.temp.sum()
-  
-  
-})
+
 ```
 
-### joined
+### On-the-fly summary
 
 ```{r}
-renderPrint({
+on_the_fly <- reactive({
+  nztcs_summary.renamed <-   nztcs_summary() %>%
+    filter(Category != "No match in NZTCS ")
   
-nztcs_summary.renamed <-   nztcs_summary() %>%
-  filter(Category != "No match in NZTCS ")
+  
+  no.matches <-   nztcs_summary() %>%
+    filter(Category == "No match in NZTCS ")
+  
+  
+  my.new <-
+    bind_rows(nztcs_summary.renamed, no.matches, my.temp.sum())
+  
+  my.new <- my.new %>% 
+    group_by(Category, Status) %>% 
+    summarise(Species = sum(Species))
+  
+  refer <- which(my.new$Category == "No match in NZTCS")
+  
+  my.new[refer, 3] <- my.new[refer, 3] - sum(my.temp.sum()$Species)
+  
+  my.new <- my.new %>% arrange(Category, Status, Species)
+  my.new
+  
+})
 
 
-no.matches <-   nztcs_summary() %>%
-  filter(Category == "No match in NZTCS ")
-
-
-my.new <- bind_rows(nztcs_summary.renamed, no.matches, my.temp.sum())
-
-refer <- which(my.new$Category== "No match in NZTCS")
-
-my.new[refer, 3] <- my.new[refer, 3] - sum(my.temp.sum()$Species)
-
-my.new
+renderDataTable({
+  datatable(on_the_fly(),
+            options = list(
+              filter = "none",
+              scrollX = TRUE,
+              "pageLength" = 15
+            ))
   
 })
 ```
@@ -1322,7 +1342,6 @@ radioButtons(
 ```{r}
 # reactive data from maps
 
-
 dataset <- reactive({
   
   if (input$choice == "upload") {
@@ -1330,7 +1349,6 @@ dataset <- reactive({
     
     # get shapefile
     my.file <- filenames[grep("shp$", filenames)]
-    
     
     st_read(paste0("Spatial Selection/", my.file), quiet = TRUE) %>%
       st_make_valid() %>%
@@ -1343,7 +1361,6 @@ dataset <- reactive({
   }
   
 })
-
 
 # selection from drawing
 sp.file <- eventReactive(input$mymap_draw_new_feature,{
@@ -1376,7 +1393,6 @@ renderUI({
   
   spp <- nrow(all.selection())
   paste("Total taxa present: ", spp)
-
 
 })
 
@@ -1461,8 +1477,6 @@ output$mymap <- renderLeaflet({
       addMiniMap() %>%
       addScaleBar(position = "topright",
               options = scaleBarOptions(imperial = FALSE)) 
-    
-    
     
   } else {
     leaflet() %>%
@@ -1856,7 +1870,9 @@ renderUI({
 
 renderUI({
   conditionalPanel(
-    condition = "input.spatialfile != 'nmfish'",
+    condition = "input.spatialfile == 'point'|
+    input.spatialfile == 'polygon'|
+    input.spatialfile == 'polyline'",
     
     textInput("sp.name",
               label = HTML("<b>Name comparison species</b>"),
@@ -1975,8 +1991,7 @@ renderUI({
 
 ```{r}
 
-
-# nmfish conditional selections
+# species choices from nmfish
 non.mig.choices <- reactive({
                          
   if (input$spatialfile == "nmfish") {
@@ -2013,6 +2028,7 @@ renderUI({
   
 
 
+
 ```{r}
 # Write note for csv file
 
@@ -2020,7 +2036,7 @@ renderUI({
   conditionalPanel(
     condition = "input.spatialfile != 'catchment'",
     
-    numericInput("notes", 
+    textInput("notes", 
                  label = HTML("Write note for csv file"),
                                        value = "Enter text...")
     )
@@ -2051,9 +2067,7 @@ output$downloadfish <- renderUI( {
 })
 
 output$downBtnfish <- downloadHandler(
-  filename = function() { paste0("edna-", input$Taxon, " vs ", 
-                                 "target-", input$non.mig.sp, " ",
-                                 "threshold-", input$aberrant,"m",".csv")},
+  filename = function() { aberrant.name()},
   content = function(file) {
     write.csv(aberrant(), file, row.names = FALSE)
   }
@@ -2401,6 +2415,80 @@ renderDataTable({
 ```
 
 
+
+```{r}
+# Naming rules
+
+aberrant.name <- reactive({
+  if (input$spatialfile != "catchment") {
+    if (input$spatialfile == "nmfish") {
+      my.name <- paste0(
+        "edna ",
+        input$Taxon,
+        " vs ",
+        "target ",
+        input$non.mig.sp,
+        " ",
+        "threshold ",
+        input$aberrant,
+        " km",
+        ".csv"
+      )
+      
+      # remove special characters
+      my.name <- gsub('"', "", my.name)
+      my.name
+      
+    } else if (input$spatialfile == "polygon") {
+      paste0(
+        "edna ",
+        input$Taxon,
+        " vs ",
+        input$sp.name,
+        " polygon data ",
+        "threshold ",
+        input$aberrant,
+        " km",
+        ".csv"
+      )
+      
+    } else if (input$spatialfile == "polyline") {
+      paste0(
+        "edna ",
+        input$Taxon,
+        " vs ",
+        input$sp.name,
+        " polyline data ",
+        "threshold ",
+        input$aberrant,
+        " km",
+        ".csv"
+      )
+      
+    } else {
+      paste0(
+        "edna ",
+        input$Taxon,
+        " vs ",
+        input$sp.name,
+        " point data ",
+        "threshold ",
+        input$aberrant,
+        " km",
+        ".csv"
+      )
+    }
+  }
+  else {
+    "Empty file - no download for catchments"
+    
+  }
+  
+  
+})
+
+```
+
 ### File check
 
 Files present:
@@ -2442,18 +2530,31 @@ renderPrint({
   
   D <- list.files(paste0(getwd(), "/Your Species Polygons"))
   
-  if (identical(C, character(0)) == TRUE) {
-    your_fish = "No files are present. If using this option please copy file(s) into: 'Your Species Polygons"
+  if (identical(D, character(0)) == TRUE) {
+    your_polygons = "No files are present. If using this option please copy file(s) into: 'Your Species Polygons"
     
   } else {
+    
     your_polygons = D
   }
   
+    E <- list.files(paste0(getwd(), "/Your Species Points"))
+  
+  if (identical(E, character(0)) == TRUE) {
+    your_points = "No files are present. If using this option please copy file(s) into: 'Your Species Points"
+    
+  } else {
+    
+    your_points = E
+  }
+  
   list(
-    "Catchment check" = your_catchment,
-    "Non-migratory fish check" = your_fish,
+    "Point check" = your_points,
     "Polygon check" = your_polygons,
-    "Polyline check" = your_polylines
+    "Polyline check" = your_polylines,
+    "Catchment check" = your_catchment,
+    "Non-migratory fish check" = your_fish
+
   )
   
 })  
