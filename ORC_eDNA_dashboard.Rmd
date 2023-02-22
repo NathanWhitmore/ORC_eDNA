@@ -59,6 +59,30 @@ radioButtons(
 
 
 ```{r}
+
+invisible(if(!("remotes" %in% list.files(.libPaths()))) install.packages("remotes"))
+invisible(if(!("pacman" %in% list.files(.libPaths()))) install.packages("pacman"))
+invisible(if(!("wilderlab" %in% list.files(.libPaths()))) remotes::install_github("wilderlabnz/wilderlab"))
+
+pacman::p_load("wilderlab",
+               "insect",
+               "sf",
+               "tidyverse",
+               "lubridate",
+               "leaflet",
+               "shiny",
+               "shinyWidgets",
+               "flexdashboard",
+               "plotly",
+               "viridis",
+               "DT",
+               "readxl",
+               "factoextra",
+               "leaflet.extras",
+               "geojsonsf",
+               "jsonify",
+               "stringr")
+
 library(wilderlab)
 library(insect)
 library(sf)
@@ -259,16 +283,6 @@ basemap <- reactive({
 })
 
 
-# visualise site locations
-# renderLeaflet({
-
-#  basemap() %>%
-#  addCircleMarkers(data = site.locations() ,
-#                   clusterOptions = markerClusterOptions(),
-#                   popup = ~client_sample_id) %>%
-#  addMiniMap()
-
-#})
 
 ```
 
@@ -402,6 +416,8 @@ selectInput(
 
 renderUI({
   
+  req(input$Classification)
+  
   my.selection <- eDNA_my_prov_sf() %>% select(input$Classification)
   st_geometry(my.selection) <- NULL
   
@@ -498,8 +514,6 @@ gauge(percentage_of_locations(), min = 0, max = 100,  symbol = '%',
 
 no_of_actual_sites <- reactive({
   
-  
-  
   length(unique(my.sf.coord()$xy))
   
 })
@@ -525,7 +539,10 @@ no_dates <- reactive({
 
 renderValueBox({
   
+  req(input$Taxon, input$Classification)
+  
   valueBox(no_dates(),  color = "#7fb3d5")
+
   
 })
   
@@ -539,19 +556,7 @@ Row {.tabset .tabset-fade}
 ### Presence / absence
 
 
-```{r}
 
-
-loc.map <- reactive({
-  
-  # visualise site locations
-  basemap() %>%
-  addMiniMap()
-  
-})
-  
-
-```
 
 
 
@@ -559,7 +564,7 @@ loc.map <- reactive({
 renderLeaflet({
   req(input$Taxon)
   
-  loc.map() %>%
+  basemap() %>%
     addCircleMarkers(
       data = site.locations(),
       color = "white",
@@ -771,7 +776,7 @@ list(
 ```{r}
 my.group <- reactive({
   
-  # input$layname
+  req(input$layname)
   
   eDNA.layname <- eDNA_my_prov_sf() %>% filter(group == input$layname)
   eDNA.layname
@@ -1024,32 +1029,31 @@ Row {.tabset .tabset-fade}
 
 ```{r}
 renderLeaflet({
-  
   req(input$category)
   
-  if(input$category == "Threatened"){
-  
-  loc.map() %>%   
-    addCircleMarkers(
-      data = my.status(),
-      color = "red",
-      fillOpacity = 0.01,
-      radius = 10
-    ) %>%
-    addScaleBar(position = "topright",
-              options = scaleBarOptions(imperial = FALSE)) 
+  if (input$category == "Threatened") {
+    basemap() %>%
+      addCircleMarkers(
+        data = my.status(),
+        color = "red",
+        fillOpacity = 0.01,
+        radius = 10
+      ) %>%
+      addScaleBar(position = "topright",
+                  options = scaleBarOptions(imperial = FALSE))  %>%
+      addMiniMap()
     
   } else {
-    
-  loc.map() %>%   
-    addCircleMarkers(
-      data = my.category(),
-      color = "red",
-      fillOpacity = 0.01,
-      radius = 10
-    ) %>%
-    addScaleBar(position = "topright",
-              options = scaleBarOptions(imperial = FALSE))     
+    basemap() %>%
+      addCircleMarkers(
+        data = my.category(),
+        color = "red",
+        fillOpacity = 0.01,
+        radius = 10
+      ) %>%
+      addScaleBar(position = "topright",
+                  options = scaleBarOptions(imperial = FALSE))   %>%
+      addMiniMap()
     
   }
   
@@ -2118,7 +2122,7 @@ my.map <- eventReactive(input$submit,
                             nearest_jump <- bind_rows(my.feature)
                             
                             
-                            loc.map() %>%
+                            basemap() %>%
                               addCircleMarkers(data = my.taxon(),
                                                color = "red",
                                                fillOpacity = 0.01,
@@ -2128,7 +2132,8 @@ my.map <- eventReactive(input$submit,
                                            weight = 2) %>%
                               addPolylines(data = non.mig.sp ,
                                            color = "yellow",
-                                           weight = 3)
+                                           weight = 3) %>%
+                              addMiniMap()
                             
                             
                           } else if (input$spatialfile == "polyline") {
@@ -2161,7 +2166,7 @@ my.map <- eventReactive(input$submit,
                             nearest_jump <- bind_rows(my.feature)
                             
                             
-                            loc.map() %>%
+                            basemap() %>%
                               addCircleMarkers(data = my.taxon(),
                                                color = "red",
                                                fillOpacity = 0.01,
@@ -2171,7 +2176,8 @@ my.map <- eventReactive(input$submit,
                                            weight = 2) %>%
                               addPolylines(data = my.species ,
                                            color = "yellow",
-                                           weight = 3)
+                                           weight = 3) %>%
+                              addMiniMap()
                             
                             
                           } else if (input$spatialfile == "catchment") {
@@ -2182,7 +2188,7 @@ my.map <- eventReactive(input$submit,
                             my.catchment$present <-
                               ifelse(my.catchment$present == TRUE, "red", "black")
                             
-                            loc.map() %>%
+                            basemap() %>%
                               addCircleMarkers(data = my.taxon(),
                                                color = "red",
                                                fillOpacity = 0.01,
@@ -2234,7 +2240,7 @@ my.map <- eventReactive(input$submit,
                             # nearest jump
                             nearest_jump <- bind_rows(my.feature)
                             
-                            loc.map() %>%
+                            basemap() %>%
                               addCircleMarkers(data = my.taxon(),
                                                color = "red",
                                                fillOpacity = 0.01,
@@ -2253,7 +2259,8 @@ my.map <- eventReactive(input$submit,
                               )%>%
                               addPolylines(data = nearest_jump,
                                            color = "white",
-                                           weight = 2) 
+                                           weight = 2)  %>%
+                              addMiniMap()
                             
                           } else {
                             
@@ -2283,7 +2290,7 @@ my.map <- eventReactive(input$submit,
                             nearest_jump <- bind_rows(my.feature)
                             
                             
-                            loc.map() %>%
+                            basemap() %>%
                                addCircleMarkers(data = my.taxon(),
                                                color = "red",
                                                fillOpacity = 0.01,
@@ -2292,7 +2299,8 @@ my.map <- eventReactive(input$submit,
                                                color = "yellow") %>%
                               addPolylines(data = nearest_jump,
                                            color = "white",
-                                           weight = 2) 
+                                           weight = 2)  %>%
+                              addMiniMap()
                             
                             
                           }
