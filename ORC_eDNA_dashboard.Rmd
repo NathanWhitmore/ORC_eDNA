@@ -41,21 +41,20 @@ radioButtons(
   label = "Either:",
   choices = list("Wilderlab API" = "wilderlab", 
                  "Local drive" = "local"),
-  selected = "local"
+  selected = "wilderlab"
 )
 
 
 ```
 
-**In this dashboard are 4 pages:**
+**In this dashboard are 6 pages:**
 
-1. **Sample locations**  - which shows all sampling locations
-1. **By taxon** - which allows disaggregation by species/subspecies
-1. **By spatial** - which allows disaggregation by species/subspecies or a specific taxon
-1. **By cluster** - which allows investigation of species/subspecies clusters
-
-
-**Your NZTCS data was last modified on: **
+1. **Sample locations**  - shows sampling effort
+1. **By taxonomy** - allows disaggregation by taxonomy
+1. **By threat status** - allows investigation of certain groups by threat listing (provincial scale)
+1. **By spatial** - allows spatial disaggregation
+1. **By cluster** - allows identification of similar ecological assemblages 
+1. **Testing existing knowledge** - allows users to cross check the *by taxonomy* results using spatial files
 
 
 ```{r}
@@ -103,20 +102,9 @@ library(jsonify)
 library(stringr)
 
 # read NZTCS data
-nztcs <- read_excel("Data/NZTCS.xlsx")
+nztcs <- read_excel("Other data/NZTCS.xlsx")
 
-renderUI({
-  
-  modification.time <- file.info("NZTCS.xlsx")$mtime
-  print(modification.time)
-  
-})
-
-  
- 
 ```
-
-**Please check that is the appropriate version for your analysis**
 
 
 ```{r}
@@ -180,7 +168,7 @@ Row {.tabset .tabset-fade}
 ```{r}
 # API switch
 # need to read API reardless of option
-APIs <- read_excel("Data/API keys.xlsx")
+APIs <- read_excel("Other data/API keys.xlsx")
 
 eDNA <- reactive ({
   if (input$origin == "wilderlab") {
@@ -489,7 +477,7 @@ basemap <- reactive({
 
 ```
 
-### Gridded map (10 sq km)
+### Sampling density (10 sq km)
 
 ```{r}
 
@@ -584,6 +572,45 @@ renderLeaflet ({
   }
   
 })
+```
+
+
+### Sample zoom
+
+```{r}
+
+unique.uid <- reactive ({
+  
+    eDNA_my_prov_sf() %>%
+      group_by(uid, collection_date) %>%
+      tally()
+  
+})
+```
+
+
+```{r}
+# visualise site locations
+renderLeaflet({
+  basemap() %>%
+    addCircleMarkers(
+      data = unique.uid() ,
+      clusterOptions = markerClusterOptions(),
+      color = "yellow",
+      popup = paste(
+        "Wilderlab ID: ",
+        unique.uid()$uid,
+        "<br>",
+        "Date:",
+        unique.uid()$collection_date,
+        "<br>",
+        "Taxon recorded:",
+        unique.uid()$n
+      )
+    )
+      
+})
+
 ```
 
 
@@ -866,9 +893,10 @@ renderDataTable({
       "pageLength" = 42,
       searching = FALSE,
       dom = "t",
-      info = FALSE
-    )
-  )
+      info = FALSE,
+      columnDefs = list(list(targets='_all', class="dt-left"))))
+    
+  
   
   
 }, fillContainer = TRUE) 
@@ -922,8 +950,9 @@ renderDataTable({
             options = list(
               filter = "none",
               scrollX = TRUE,
-              "pageLength" = 8
-            ))
+              "pageLength" = 8,
+              columnDefs = list(list(targets='_all', class="dt-left"))))
+            
   
   
   
@@ -1091,6 +1120,18 @@ my.status <- reactive({
 })
 
 ```
+
+**Your NZTCS data was last modified on: **
+
+```{r}
+renderUI({
+  
+  modification.time <- file.info("Other data/NZTCS.xlsx")$mtime
+  print(modification.time)
+  
+})
+```
+
 
 
 <br/>
@@ -1292,9 +1333,15 @@ species.in.your.filter <- reactive({
 })
 
 renderDataTable({
-  req(input$category)
   
-  species.in.your.filter()
+   req(input$category)
+  
+   datatable(species.in.your.filter(),
+            options = list(
+              filter = "none",
+              scrollX = TRUE,
+              "pageLength" = 15,
+              columnDefs = list(list(targets='_all', class="dt-left"))))
   
 })
 ```
@@ -1312,7 +1359,7 @@ my.incompletes <- reactive({
   
   my.incompletes <- my.incompletes %>%
     select(c("phylum", "class" , "order", "family" , "genus", "species")) %>%
-    distinct()
+    distinct() %>% arrange(species)
   my.incompletes
 })
 
@@ -1324,8 +1371,10 @@ renderDataTable({
             options = list(
               filter = "none",
               scrollX = TRUE,
-              "pageLength" = 15
-            ))
+              "pageLength" = 15,
+              columnDefs = list(list(targets='_all', class="dt-left"))))
+                
+
   
 })
 ```
@@ -1369,8 +1418,9 @@ renderDataTable({
             options = list(
               filter = "none",
               scrollX = TRUE,
-              "pageLength" = 15
-            ))
+              "pageLength" = 15,
+              columnDefs = list(list(targets='_all', class="dt-left"))))
+            
   
 })
 ```
@@ -1404,8 +1454,9 @@ renderDataTable({
             options = list(
               filter = "none",
               scrollX = TRUE,
-              "pageLength" = 15
-            ))
+              "pageLength" = 15,
+              columnDefs = list(list(targets='_all', class="dt-left"))))
+          
 
 })
 
@@ -1511,8 +1562,9 @@ renderDataTable({
             options = list(
               filter = "none",
               scrollX = TRUE,
-              "pageLength" = 15
-            ))
+              "pageLength" = 15,
+              columnDefs = list(list(targets='_all', class="dt-left"))))
+            
   
 })
 ```
@@ -1545,6 +1597,23 @@ radioButtons(
   selected = "draw"
 )
 
+
+renderUI({
+  
+    if (input$choice == "upload") {
+    filenames <- list.files(paste0(getwd(), "/Spatial Selection"))
+    
+    # get shapefile
+    my.file <- filenames[grep("shp$", filenames)]
+  
+    
+    HTML(paste("<b>You have uploaded:</b>",  my.file))
+    
+} else{
+  
+   HTML(paste("<b>Drawing required</b>"))
+}
+})
 ```
 
 ```{r}
@@ -1894,6 +1963,7 @@ Row {.tabset .tabset-fade}
 
 ```{r}
 
+
 renderLeaflet({
   my.dna <- eDNA()[, c("name", "latitude", "longitude", "uid")]
   
@@ -1958,10 +2028,17 @@ renderLeaflet({
   basemap() %>%
     addCircleMarkers(data = clust.map, color = ~ beatCol(groups)) %>%
     addMiniMap() %>%
+    addMeasure(
+      position = "bottomleft",
+      primaryLengthUnit = "kilometers",
+      primaryAreaUnit = "ha",
+      activeColor = "lightyellow",
+      completedColor = "orange"
+    ) %>%
     addScaleBar(position = "topright",
-              options = scaleBarOptions(imperial = FALSE)) 
-    
-
+                options = scaleBarOptions(imperial = FALSE))
+  
+  
 })
 ```
 
@@ -2613,7 +2690,8 @@ renderDataTable({
 
     datatable(aberrant(), 
                   options = list(filter = "none",
-                  scroll = TRUE, "pageLength" = 8))
+                  scroll = TRUE, "pageLength" = 8,
+                  columnDefs = list(list(targets='_all', class="dt-left"))))
     
   } else {
     
