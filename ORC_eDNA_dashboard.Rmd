@@ -336,7 +336,7 @@ eDNA <- reactive ({
       last <- names(biodiversity.full[[i]][, ncol(biodiversity.full[[i]])])
       
       temp <- biodiversity.full[[i]] %>%
-        pivot_longer(cols = first:last,
+        pivot_longer(cols = all_of(first):all_of(last),
                      names_to = "UID",
                      values_to = "Count")
       
@@ -353,19 +353,17 @@ eDNA <- reactive ({
     my.full <- bind_rows(my.full)
     
     
-    
-    # read taxa (stored locally) for classification information
-    
-    my.taxa <- read.csv("Data/taxa.csv")
-    
-    my.full <- left_join(my.full, my.taxa, by = "TaxID")
-    my.full$Sequence <- NULL
-    my.full$Target <- NULL
-    my.full$MaoriName <- NULL
-    
-    
+    # read taxa from API
+    taxa <-
+      get_wilderdata(
+        "taxa",
+        key = APIs$key,
+        secret = APIs$secret,
+        xapikey = APIs$xapikey
+      )
+
     # get lineages
-    tdb <- my.full[, c(3, 8, 9, 10)]
+    tdb <- taxa[, 1:4]
     colnames(tdb) <- c("taxID", "parent_taxID", "rank", "name")
     lineages <- insect::get_lineage(my.full$TaxID, tdb)
     
@@ -375,7 +373,7 @@ eDNA <- reactive ({
     my.full$family <- sapply(lineages, "[", "family")
     my.full$genus <- sapply(lineages, "[", "genus")
     my.full$species <- sapply(lineages, "[", "species")
-    
+     
     # join my.full to biodiversity.meta.data
     eDNA <- left_join(my.full, biodiversity.meta.data,  by = "UID")
     eDNA$HID <- NA
@@ -385,9 +383,9 @@ eDNA <- reactive ({
       "HID",
       "UID",
       "TaxID",
-      "Rank.x",
+      "Rank",
       "ScientificName",
-      "CommonName.x",
+      "CommonName",
       "Group",
       "Count",
       "phylum",
@@ -611,7 +609,8 @@ selectInput(
     "Order" = "order",
     "Family" = "family",
     "Genus" = "genus",
-    "Species" = "species"
+    "Species" = "species",
+    "Subspecies" = "subspecies"
   ),
       selected = "species"
 )
