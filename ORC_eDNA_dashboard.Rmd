@@ -41,7 +41,7 @@ radioButtons(
   label = "Either:",
   choices = list("Wilderlab API" = "wilderlab", 
                  "Local drive" = "local"),
-  selected = "wilderlab"
+  selected = "local"
 )
 
 
@@ -102,7 +102,6 @@ library(geojsonsf)
 library(jsonify)
 library(stringr)
 
-
 # read NZTCS data
 nztcs <- read_excel("Data/NZTCS.xlsx")
 
@@ -110,7 +109,6 @@ renderUI({
   
   modification.time <- file.info("NZTCS.xlsx")$mtime
   print(modification.time)
-  
   
 })
 
@@ -180,46 +178,257 @@ Row {.tabset .tabset-fade}
 -------------------------------------
 
 ```{r}
-# APIs
+# API switch
+# need to read API reardless of option
 APIs <- read_excel("Data/API keys.xlsx")
 
-
-# get job info
-
-jobs <- get_wilderdata("jobs", key = APIs$key, secret = APIs$secret, xapikey = APIs$xapikey)
-samples <- get_wilderdata("samples", key = APIs$key, secret = APIs$secret, xapikey = APIs$xapikey)
-taxa <- get_wilderdata("taxa", key = APIs$key, secret = APIs$secret, xapikey = APIs$xapikey)
-
-# get full record
-records <- vector(mode = "list", length = nrow(jobs))
-for(i in seq_along(records)){
-  records[[i]] <- get_wilderdata("records", JobID = jobs$JobID[i],
-                                 key = APIs$key, secret = APIs$secret, xapikey = APIs$xapikey)
-}
-records <- do.call("rbind", records)
-
-
-# add taxa info
-tdb <- taxa[, 1:4]
-colnames(tdb) <- c("taxID", "parent_taxID", "rank", "name")
-lineages <- insect::get_lineage(records$TaxID, tdb)
-
-# add classification
-records$phylum <- sapply(lineages, "[", "phylum")
-records$class <- sapply(lineages, "[", "class")
-records$order <- sapply(lineages, "[", "order")
-records$family <- sapply(lineages, "[", "family")
-records$genus <- sapply(lineages, "[", "genus")
-records$species <- sapply(lineages, "[", "species")
-records$Latitude <- samples$Latitude[match(records$UID,samples$UID)]
-records$Longitude <- samples$Longitude[match(records$UID,samples$UID)]
-records$ClientSampleID <- samples$ClientSampleID[match(records$UID,samples$UID)]
-
-# date join
-date.id <- samples[, c("UID", "CollectionDate")]
-
-# add dates to record
-eDNA <- left_join(records, date.id, by = "UID")
+eDNA <- reactive ({
+  if (input$origin == "wilderlab") {
+    # get job info
+    
+    jobs <-
+      get_wilderdata(
+        "jobs",
+        key = APIs$key,
+        secret = APIs$secret,
+        xapikey = APIs$xapikey
+      )
+    samples <-
+      get_wilderdata(
+        "samples",
+        key = APIs$key,
+        secret = APIs$secret,
+        xapikey = APIs$xapikey
+      )
+    taxa <-
+      get_wilderdata(
+        "taxa",
+        key = APIs$key,
+        secret = APIs$secret,
+        xapikey = APIs$xapikey
+      )
+    
+    # get full record
+    records <- vector(mode = "list", length = nrow(jobs))
+    for (i in seq_along(records)) {
+      records[[i]] <- get_wilderdata(
+        "records",
+        JobID = jobs$JobID[i],
+        key = APIs$key,
+        secret = APIs$secret,
+        xapikey = APIs$xapikey
+      )
+    }
+    records <- do.call("rbind", records)
+    
+    
+    # add taxa info
+    tdb <- taxa[, 1:4]
+    colnames(tdb) <- c("taxID", "parent_taxID", "rank", "name")
+    lineages <- insect::get_lineage(records$TaxID, tdb)
+    
+    # add classification
+    records$phylum <- sapply(lineages, "[", "phylum")
+    records$class <- sapply(lineages, "[", "class")
+    records$order <- sapply(lineages, "[", "order")
+    records$family <- sapply(lineages, "[", "family")
+    records$genus <- sapply(lineages, "[", "genus")
+    records$species <- sapply(lineages, "[", "species")
+    records$Latitude <- samples$Latitude[match(records$UID, samples$UID)]
+    records$Longitude <-
+      samples$Longitude[match(records$UID, samples$UID)]
+    records$ClientSampleID <-
+      samples$ClientSampleID[match(records$UID, samples$UID)]
+    
+    # date join
+    date.id <- samples[, c("UID", "CollectionDate")]
+    
+    # add dates to record
+    eDNA <- left_join(records, date.id, by = "UID")
+    eDNA <- eDNA %>% janitor::clean_names()
+    eDNA
+    
+  } else {
+    file.list <-
+      list.files("Wilderlab_full_results", pattern = '*.xlsx')
+    
+    # read list
+    dir <- paste0("Wilderlab_full_results", "/", file.list)
+    
+    # read all files
+    biodiversity.full <- lapply(dir, function(x)
+      read_excel(x, sheet = "full"))
+    
+    
+    ## extract metadata
+    biodiversity.meta <-
+      lapply(dir, function(x)
+        read_excel(x, sheet = "metadata"))
+    
+    # make extraction function
+    
+    extract.meta <- function(x) {
+      metadata <- x[19:nrow(x),]
+      colnames(metadata) <- metadata[1,]
+      metadata <- data.frame(metadata[2:nrow(metadata),])
+      
+    }
+    
+    
+    # apply over all workbooks
+    biodiversity.meta.list <- lapply(biodiversity.meta, function(x)
+      extract.meta(x))
+    
+    
+    # change to character
+    biodiversity.meta.data <-
+      bind_rows(lapply(biodiversity.meta.list, function(x) {
+        mutate_all(x, as.character)
+      }))
+    
+    ## control mixed dates
+    
+    # copy excel dates to new column
+    biodiversity.meta.data$otherDate <-
+      ifelse(
+        str_count(biodiversity.meta.data$CollectionDate) != 10,
+        biodiversity.meta.data$CollectionDate,
+        ""
+      )
+    biodiversity.meta.data$otherDate <-
+      as.numeric(biodiversity.meta.data$otherDate)
+    
+    # change to normal date
+    biodiversity.meta.data$otherDate <-
+      as.Date(biodiversity.meta.data$otherDate, origin = "1899-12-30")
+    
+    # remove excel dates from original
+    biodiversity.meta.data$CollectionDate <-
+      ifelse(
+        str_count(biodiversity.meta.data$CollectionDate) == 10,
+        biodiversity.meta.data$CollectionDate,
+        ""
+      )
+    
+    # change to date
+    biodiversity.meta.data$CollectionDate <-
+      ymd(biodiversity.meta.data$CollectionDate)
+    
+    # coalesce
+    biodiversity.meta.data$CollectionDate <-
+      coalesce(biodiversity.meta.data$CollectionDate,
+               biodiversity.meta.data$otherDate)
+    
+    #########
+    
+    # read full
+    
+    biodiversity.full <-
+      lapply(dir, function(x)
+        read_excel(x, sheet = "full"))
+    
+    
+    my.full <- list()
+    
+    for (i in 1:length(dir))
+    {
+      first <- names(biodiversity.full[[i]][, 8])
+      last <- names(biodiversity.full[[i]][, ncol(biodiversity.full[[i]])])
+      
+      temp <- biodiversity.full[[i]] %>%
+        pivot_longer(cols = first:last,
+                     names_to = "UID",
+                     values_to = "Count")
+      
+      # ensure zeros are not recorded as counts
+      temp$Count <- ifelse(temp$Count == 0, NA,
+                            temp$Count)
+      
+      temp <- temp %>% drop_na(Count)
+      
+      my.full[[i]] <- temp
+      
+    }
+    
+    my.full <- bind_rows(my.full)
+    
+    
+    
+    # read taxa (stored locally) for classification information
+    
+    my.taxa <- read.csv("Data/taxa.csv")
+    
+    my.full <- left_join(my.full, my.taxa, by = "TaxID")
+    my.full$Sequence <- NULL
+    my.full$Target <- NULL
+    my.full$MaoriName <- NULL
+    
+    
+    # get lineages
+    tdb <- my.full[, c(3, 8, 9, 10)]
+    colnames(tdb) <- c("taxID", "parent_taxID", "rank", "name")
+    lineages <- insect::get_lineage(my.full$TaxID, tdb)
+    
+    my.full$phylum <- sapply(lineages, "[", "phylum")
+    my.full$class <- sapply(lineages, "[", "class")
+    my.full$order <- sapply(lineages, "[", "order")
+    my.full$family <- sapply(lineages, "[", "family")
+    my.full$genus <- sapply(lineages, "[", "genus")
+    my.full$species <- sapply(lineages, "[", "species")
+    
+    # join my.full to biodiversity.meta.data
+    eDNA <- left_join(my.full, biodiversity.meta.data,  by = "UID")
+    eDNA$HID <- NA
+    
+    # select columns
+    eDNA <- eDNA[, c(
+      "HID",
+      "UID",
+      "TaxID",
+      "Rank.x",
+      "ScientificName",
+      "CommonName.x",
+      "Group",
+      "Count",
+      "phylum",
+      "class",
+      "order",
+      "family",
+      "genus",
+      "species",
+      "Latitude",
+      "Longitude",
+      "ClientSampleID",
+      "CollectionDate"
+    )]
+    
+    # rename column names
+    colnames(eDNA) <- c(
+      "HID",
+      "UID",
+      "TaxID",
+      "Rank",
+      "Name",
+      "CommonName",
+      "Group",
+      "Count",
+      "phylum",
+      "class",
+      "order",
+      "family",
+      "genus",
+      "species",
+      "Latitude",
+      "Longitude",
+      "ClientSampleID",
+      "CollectionDate"
+    )
+    
+    eDNA <- eDNA %>% janitor::clean_names()
+    eDNA
+  }
+  
+})
 
 ```
 
@@ -228,14 +437,10 @@ eDNA <- left_join(records, date.id, by = "UID")
 
 
 ```{r, message = FALSE}
-# read in eDNA data (fast)
-eDNA <- eDNA %>% # data provided by Wilderlab
-  janitor::clean_names()
-
 
 # clip by province
 eDNA_my_prov_sf <- reactive ({
-  eDNA_my_prov_sf  <- eDNA %>%
+  eDNA_my_prov_sf  <- eDNA() %>%
     st_as_sf(coords = c("longitude", "latitude"), crs = 4326) %>%
     st_intersection(my.clip.province())
   
@@ -815,7 +1020,7 @@ renderUI({
 
   selectInput("layname",
               label = "Select group",
-              choices = sort(unique(eDNA$group)),
+              choices = sort(unique(eDNA()$group)),
               selected = "Fish")
 })
 ```
@@ -1691,7 +1896,7 @@ Row {.tabset .tabset-fade}
 ```{r}
 
 renderLeaflet({
-  my.dna <- eDNA[, c("name", "latitude", "longitude", "uid")]
+  my.dna <- eDNA()[, c("name", "latitude", "longitude", "uid")]
   
   # make future rowname
   my.dna$longlat <- paste(my.dna$longitude, my.dna$latitude)
@@ -1766,7 +1971,7 @@ renderLeaflet({
 ```{r}
 my.clust <- reactive ({
   # simplifed data
-  my.dna <- eDNA %>% filter(rank == "species" |
+  my.dna <- eDNA() %>% filter(rank == "species" |
                                 rank == "subspecies" )
   
   my.dna <- my.dna[, c("name", "latitude", "longitude", "uid")]
