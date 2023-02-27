@@ -2695,7 +2695,7 @@ renderDataTable({
     
   } else {
     
-    data.frame(Notes = paste0("No aberrant records at a threshold of ", input$aberrant, "m"))
+    data.frame(Notes = paste0("No aberrant records at a threshold of ", input$aberrant, " km"))
     
   }
 })
