@@ -636,7 +636,7 @@ Column {.sidebar}
 
 **Filter by taxonomy**
 
-
+*Note: the options for filtering are drawn from your current eDNA records.*
 
 ```{r}
 selectInput(
@@ -1052,7 +1052,9 @@ By threat status
 Column {.sidebar}
 -----------------------------------------------------------------------
 
-Choose group to filter:
+**Choose group to filter:**
+
+*Note: the groups for filtering are drawn from your current eDNA records and cross referenced against the NZTCS data you have provided.*
 
 ```{r}
 # choose 
@@ -1065,7 +1067,7 @@ renderUI({
 })
 ```
 
-*Note: if no species are found in the NZTCS excel file provided the drop-down menu below will be blank and no map will be rendered*
+*Note: if no matching entries are found in the NZTCS excel file provided the drop-down menu below will be blank and no map will be rendered*
 
 ```{r}
 # category drop down
