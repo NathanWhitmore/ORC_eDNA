@@ -36,6 +36,9 @@ Column {.sidebar}
 **Upload data from**
 
 ```{r}
+# renv::init()
+
+
 radioButtons(
   "origin",
   label = "Either:",
@@ -80,7 +83,8 @@ pacman::p_load("wilderlab",
                "leaflet.extras",
                "geojsonsf",
                "jsonify",
-               "stringr")
+               "stringr",
+               "janitor")
 
 library(wilderlab)
 library(insect)
@@ -100,6 +104,7 @@ library(leaflet.extras)
 library(geojsonsf)
 library(jsonify)
 library(stringr)
+library(janitor)
 
 # read NZTCS data
 nztcs <- read_excel("Other data/NZTCS.xlsx")
@@ -110,7 +115,7 @@ nztcs <- read_excel("Other data/NZTCS.xlsx")
 ```{r}
 radioButtons(
   "province",
-  label = "Clip data by province?",
+  label = "Clip data by regional council boundary?",
   choices = list(
     "No" = "No",
     "Yes" = "Yes"
@@ -142,7 +147,7 @@ conditionalPanel(
   
   selectInput(
     "my.province",
-    label = "Clip by province:",
+    label = "Clip by regional council boundary:",
     choices = province.choice,
     selected = "Otago Region"
   )
@@ -256,7 +261,10 @@ eDNA <- reactive ({
     # make extraction function
     
     extract.meta <- function(x) {
-      metadata <- x[19:nrow(x),]
+      
+      ref <- which(x[,1]== "UID") 
+      
+      metadata <- x[ref:nrow(x),]
       colnames(metadata) <- metadata[1,]
       metadata <- data.frame(metadata[2:nrow(metadata),])
       
@@ -306,6 +314,10 @@ eDNA <- reactive ({
     biodiversity.meta.data$CollectionDate <-
       coalesce(biodiversity.meta.data$CollectionDate,
                biodiversity.meta.data$otherDate)
+    
+    # ensure lat long are numeric
+    biodiversity.meta.data$Latitude <- as.numeric(biodiversity.meta.data$Latitude)
+        biodiversity.meta.data$Longitude <- as.numeric(biodiversity.meta.data$Longitude)
     
     #########
     
@@ -636,8 +648,7 @@ selectInput(
     "Order" = "order",
     "Family" = "family",
     "Genus" = "genus",
-    "Species" = "species",
-    "Subspecies" = "subspecies"
+    "Species" = "species"
   ),
       selected = "species"
 )
@@ -866,6 +877,7 @@ sp.info <- reactive({
   
   sp.info <- sp.info %>% rownames_to_column()
   colnames(sp.info) <- c("Attribute", "Status")
+
   
   sp.info} else {
     
@@ -882,7 +894,6 @@ sp.info <- reactive({
 renderDataTable({
   
   req(input$Taxon)
-  
   
   datatable(
     sp.info(),
@@ -938,13 +949,14 @@ my.species.coord.tax <- reactive({
       uid
     )
   
+  my.species.coord.tax <- my.species.coord.tax %>% clean_names(case = "sentence")
+  my.species.coord.tax <- my.species.coord.tax %>% rename(HID = Hid,
+                                                          UID = Uid)
   my.species.coord.tax
 })
 
 renderDataTable({
   req(input$Taxon)
-  
-  
   
   datatable(my.species.coord.tax(),
             options = list(
@@ -1047,7 +1059,7 @@ Choose group to filter:
 renderUI({
 
   selectInput("layname",
-              label = "Select group",
+              label = HTML("<b>Select group</b>"),
               choices = sort(unique(eDNA()$group)),
               selected = "Fish")
 })
@@ -1067,7 +1079,7 @@ renderUI({
   choices <- sort(unique(my.selection$Category))
   
   selectInput("category",
-              label = "Threat category",
+              label = HTML("<b>Threat category</b>"),
               choices = choices,
               selected = "Not Threatened")
   
@@ -1209,7 +1221,7 @@ renderUI({
   selectInput(
     "assign.species",
     label = "Select species",
-    choices = sort(unique(my.incompletes()$species))
+    choices = sort(unique(my.incompletes()$Species))
   )
 })
 
@@ -1320,6 +1332,8 @@ species.in.your.filter <- reactive({
       group_by(species, Category, Status) %>%
       summarise(instances = n())
     st_geometry(temp_status) <- NULL
+    
+    temp_status <- temp_status %>% clean_names(case = "sentence")
     temp_status
     
   } else {
@@ -1327,6 +1341,8 @@ species.in.your.filter <- reactive({
       group_by(species, Category, Status) %>%
       summarise(instances = n())
     st_geometry(temp_category) <- NULL
+    
+    temp_category <- temp_category %>% clean_names(case = "sentence")
     temp_category
   }
   
@@ -1360,7 +1376,9 @@ my.incompletes <- reactive({
   my.incompletes <- my.incompletes %>%
     select(c("phylum", "class" , "order", "family" , "genus", "species")) %>%
     distinct() %>% arrange(species)
-  my.incompletes
+  my.incompletes <- my.incompletes %>% clean_names(case = "sentence")
+  
+  my.incompletes 
 })
 
 
@@ -1379,7 +1397,7 @@ renderDataTable({
 })
 ```
 
-### Summary (all categories & statuses)
+### Summary: all categories & statuses
 
 ```{r}
 
@@ -1402,10 +1420,10 @@ nztcs_summary <- reactive({
   interim$Status <-
     ifelse(is.na(interim$Status), "No match in NZTCS", interim$Status)
   
-  colnames(interim) <- c("Category", "Status", "Species")
+  colnames(interim) <- c("Category", "Status", "No. of species")
   
-  interim <- interim %>% arrange(Category, Status, Species)
-  interim
+  interim <- interim %>% arrange(Category, Status, `No. of species`)
+  interim 
   
 })
 
@@ -1432,25 +1450,28 @@ renderDataTable({
 # Create a reactive object to store the entries
 entries <- reactiveValues(
   
-  df = data.frame(species = character(), 
-                  category = character(), 
-                  status = character())
+  df = data.frame(Species = character(), 
+                  Category = character(), 
+                  Status = character())
 )
 
 
 # Update reactive object with each new entry
 observeEvent(input$submit_table, {
   
-  new_entry <- data.frame(species = input$assign.species, 
-                    category = input$assign.cat,
-                    status = input$assign.statx)
+  new_entry <- data.frame(Species = input$assign.species, 
+                    Category = input$assign.cat,
+                    Status = input$assign.statx)
   entries$df <- rbind(entries$df, new_entry)
+ # entries$df <- entries$df %>% clean_names(case = "sentence")
+  entries$df
   
 })
 
 renderDataTable({
+
   
-  datatable( entries$df,
+  datatable(entries$df,
             options = list(
               filter = "none",
               scrollX = TRUE,
@@ -1469,9 +1490,9 @@ observeEvent(input$submit_remove, {
     
   } else if(input$remove.row == "1" & nrow(entries$df)==1) {
     
-    entries$df <- data.frame(species = character(), 
-                            category = character(), 
-                            status = character())
+    entries$df <- data.frame(Species = character(), 
+                            Category = character(), 
+                            Status = character())
     
   } else {
   
@@ -1515,11 +1536,11 @@ renderPrint({
 my.temp.sum <- reactive({
   
   my.temp.sum <- entries$df %>% 
-    group_by(category, status)  %>%
-    summarise(species = n())
+    group_by(Category, Status)  %>%
+    summarise(`No. of species` = n())
   
   # rename to match
-  colnames(my.temp.sum) <- c("Category", "Status", "Species")
+  colnames(my.temp.sum) <- c("Category", "Status", "No. of species")
   
   my.temp.sum
   
@@ -1532,6 +1553,7 @@ my.temp.sum <- reactive({
 
 ```{r}
 on_the_fly <- reactive({
+  
   nztcs_summary.renamed <-   nztcs_summary() %>%
     filter(Category != "No match in NZTCS ")
   
@@ -1539,19 +1561,19 @@ on_the_fly <- reactive({
   no.matches <-   nztcs_summary() %>%
     filter(Category == "No match in NZTCS ")
   
-  
   my.new <-
     bind_rows(nztcs_summary.renamed, no.matches, my.temp.sum())
   
   my.new <- my.new %>% 
     group_by(Category, Status) %>% 
-    summarise(Species = sum(Species))
+    summarise(`No. of species` = sum(`No. of species`))
   
   refer <- which(my.new$Category == "No match in NZTCS")
   
-  my.new[refer, 3] <- my.new[refer, 3] - sum(my.temp.sum()$Species)
+  my.new[refer, 3] <- my.new[refer, 3] - sum(my.temp.sum()$`No. of species`)
   
-  my.new <- my.new %>% arrange(Category, Status, Species)
+  my.new <- my.new %>% arrange(Category, Status, `No. of species`)
+#  my.new <- my.new %>% rename(`No. of species` = Species)
   my.new
   
 })
@@ -1568,8 +1590,6 @@ renderDataTable({
   
 })
 ```
-
-
 
 
 By spatial
@@ -1873,7 +1893,10 @@ renderPlotly({
 ```{r}
 renderDataTable({
   
-    datatable(all.selection(), 
+  selection.data <- all.selection()
+  selection.data <- selection.data %>% clean_names(case = "sentence")
+  
+    datatable(selection.data, 
                   options = list(filter = "none",
                   scrollX = TRUE, "pageLength" = 15))
     
@@ -1932,7 +1955,7 @@ Column {.sidebar}
 
 **Explore patterns in biodiversity via clustering**
 
-Clusters are solely constructed around dissimilarities in biodiversity (i.e. spatial elements are ignored).
+Clusters are solely constructed around dissimilarities in eDNA sequence fragments (i.e. spatial elements are ignored).
 
 <br/>
 
@@ -1945,9 +1968,10 @@ sliderInput("cluster", label = "Move slider:", min = 2,
         max = 10, value = 5, step = 1)
 ```
 
+Not: each cluster is indicated though a randomly assigned colour.
 <br/>
 
-**Hierarchial clustering (via dissimilarities)**
+**Hierarchical clustering (via dissimilarities)**
 
 ```{r}
 selectInput("hier",
@@ -2602,7 +2626,7 @@ renderLeaflet ({
 
 
 
-### Sample data
+### Aberrant entries
 
 ```{r}
 
@@ -2615,12 +2639,14 @@ aberrant <- eventReactive(input$submit,
      
    my.selected.species <- my.shape() %>% 
      filter(Species == input$non.mig.sp) %>% 
-     st_make_valid()
+     st_make_valid() %>% 
+     clean_names(case = "sentence")
    
    } else if (input$spatialfile != "nmfish"){
      
     my.selected.species <- my.shape() %>% 
-     st_make_valid()
+     st_make_valid() %>% 
+     clean_names(case = "sentence")
      
    }
   
@@ -2670,6 +2696,7 @@ aberrant <- eventReactive(input$submit,
     aberrant <- aberrant[, -c(1:4)]
     
     # return
+    aberrant <- aberrant %>% clean_names(case = "sentence")
     aberrant 
     
  } else {
@@ -2840,8 +2867,8 @@ renderPrint({
   
   list(
     "Point check" = your_points,
-    "Polygon check" = your_polygons,
     "Polyline check" = your_polylines,
+    "Polygon check" = your_polygons,
     "Catchment check" = your_catchment,
     "Non-migratory fish check" = your_fish
 
