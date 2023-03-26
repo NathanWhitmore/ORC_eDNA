@@ -47,17 +47,17 @@ radioButtons(
   selected = "wilderlab"
 )
 
-
 ```
 
 **In this dashboard are 6 pages:**
 
 1. **Sample locations**  - shows sampling effort
 1. **By taxonomy** - allows disaggregation by taxonomy
-1. **By threat status** - allows investigation of certain groups by threat listing (provincial scale)
+1. **By threat status** - allows investigation of certain groups by threat listing
 1. **By spatial** - allows spatial disaggregation
 1. **By cluster** - allows identification of similar ecological assemblages 
 1. **Testing existing knowledge** - allows users to cross check the *by taxonomy* results using spatial files
+1. **Instructions** - provides the basic instructions for the use of the dashboard. For more detailed instructions please refer to the manual
 
 
 ```{r}
@@ -1331,20 +1331,24 @@ species.in.your.filter <- reactive({
   
   if (input$category == "Threatened") {
     temp_status <- my.status() %>%
-      group_by(species, Category, Status) %>%
+      group_by(species, `Preferred Common Name`, `Preferred Māori Name`, Category, Status) %>%
       summarise(instances = n())
     st_geometry(temp_status) <- NULL
     
-    temp_status <- temp_status %>% clean_names(case = "sentence")
+    temp_status <- temp_status %>% clean_names(case = "title")
+    
+
+    
     temp_status
     
   } else {
     temp_category <- my.category() %>%
-      group_by(species, Category, Status) %>%
+      group_by(species,`Preferred Common Name`, `Preferred Māori Name`, Category, Status) %>%
       summarise(instances = n())
     st_geometry(temp_category) <- NULL
     
-    temp_category <- temp_category %>% clean_names(case = "sentence")
+    temp_category <- temp_category %>% clean_names(case = "title")
+  
     temp_category
   }
   
@@ -1361,6 +1365,16 @@ renderDataTable({
               "pageLength" = 15,
               columnDefs = list(list(targets='_all', class="dt-left"))))
   
+})
+```
+
+
+### neu
+
+```{r}
+renderPrint({
+  
+  str(species.in.your.filter())
 })
 ```
 
@@ -2695,10 +2709,12 @@ aberrant <- eventReactive(input$submit,
     aberrant <- aberrant %>% filter(dist.km >= input$aberrant)
     
     # remove unwanted columns 
-    aberrant <- aberrant[, -c(1:4)]
+    aberrant <- aberrant[, -c(1,3,4)]
     
     # return
     aberrant <- aberrant %>% clean_names(case = "sentence")
+    aberrant <- aberrant %>% rename(UID = Uid)
+      
     aberrant 
     
  } else {
@@ -2880,4 +2896,8 @@ renderPrint({
   
 ```
 
+Instructions
+=====================================
 
+Column {.sidebar}
+---------------------
