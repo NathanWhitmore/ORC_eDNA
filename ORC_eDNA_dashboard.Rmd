@@ -616,7 +616,7 @@ renderLeaflet({
         "Date:",
         unique.uid()$collection_date,
         "<br>",
-        "Taxon recorded:",
+        "Taxa recorded:",
         unique.uid()$n
       )
     )
@@ -795,7 +795,7 @@ renderValueBox({
 Row {.tabset .tabset-fade}
 -------------------------------------
 
-### Presence / absence
+### Presence / non-occurrence
 
 
 
@@ -1369,15 +1369,6 @@ renderDataTable({
 ```
 
 
-### neu
-
-```{r}
-renderPrint({
-  
-  str(species.in.your.filter())
-})
-```
-
 ### Unmatched eDNA samples
 
 These samples do not have a NZTCS listing:
@@ -1619,7 +1610,7 @@ Column {.sidebar}
 You can either:
 
 1. Upload a predefined ESRI shapefile (from the **Spatial Selection** folder) or 
-2. Select an area either square, circular, or a polygon on the fly
+2. Select an area either square, circular, or a polygon on-the-fly
 
 The eDNA data will extracted for your selected area.
 
@@ -1930,16 +1921,18 @@ area <- reactive ({
   
   if (input$choice == "upload") {
     
-    dataset() %>% st_area()
+    dataset() %>% st_transform(crs = 2193) %>% st_area()
     
   } else {
     
     if (sp.file()$feature_type == "circle") {
       
-      st_buffer(sp.file(), sp.file()$radius) %>% st_area()
+      st_buffer(sp.file(), sp.file()$radius) %>%
+        st_transform(crs = 2193) %>% st_area()
       
     } else {
-      sp.file() %>% st_area()
+      sp.file() %>%  st_transform(crs = 2193) %>% 
+        st_area()
       
     }
     
