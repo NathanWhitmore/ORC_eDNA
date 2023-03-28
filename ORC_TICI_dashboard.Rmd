@@ -1,0 +1,929 @@
+---
+title: "Taxon-Independent Community Index (TICI) dashboard"
+runtime: shiny
+output:
+  flexdashboard::flex_dashboard:
+    navbar:
+      - { title: "reproducible.co.nz", href: "https://reproducible.co.nz", align: right }
+    orientation: rows
+    vertical_layout: fill
+    theme: spacelab
+    source_code: embed 
+---
+<style>
+
+body {
+  padding-top: 70px;
+}
+
+
+.navbar-brand {
+font-family: "Candara";
+  font-weight: bold;
+  font-size: 24px;
+}
+
+
+</style>
+
+
+```{r}
+# Autoinstall
+# install remotes, pacman, wilderlab if not already installed
+
+invisible(if(!("remotes" %in% list.files(.libPaths()))) install.packages("remotes"))
+invisible(if(!("pacman" %in% list.files(.libPaths()))) install.packages("pacman"))
+invisible(if(!("wilderlab" %in% list.files(.libPaths()))) remotes::install_github("wilderlabnz/wilderlab"))
+
+# load via pacman required packages
+pacman::p_load("sf",
+               "leaflet",
+               "lubridate",
+               "leaflet.extras",
+               "geojsonsf",
+               "jsonify",
+               "plotly",
+               "viridisLite",
+               "igraph",
+               "DT",
+               "insect",
+               "shiny",
+               "flexdashboard")
+
+library(tidyverse)
+library(readxl)
+library(sf)
+library(leaflet)
+library(lubridate)
+library(leaflet.extras)
+library(geojsonsf)
+library(jsonify)
+library(plotly)
+library(viridisLite)
+library(igraph)
+library(DT)
+library(wilderlab)
+library(insect)
+```
+
+```{r}
+# read otago shape file
+NZ <- st_read("Regional boundaries/regional-council-2022-generalised.shp", quiet = TRUE)
+NZ  <- NZ %>% st_transform(crs = 4326)
+
+# special function
+group_points <- function(points, distance){
+  ## get distance matrix
+  dist_matrix = st_distance(points, by_element = FALSE)
+  ## this object has units, so get rid of them:
+  class(dist_matrix) = NULL
+  ## make a binary 0/1 matrix where 1 if two polys are inside the distance threshold
+  connected = dist_matrix < distance
+  ## make a graph
+  g = graph_from_adjacency_matrix(connected)
+  return(components(g)$membership)
+}
+```
+
+
+
+
+
+
+Column {.sidebar}
+-----------------------------------------------------------------------
+
+Please refer to instruction & glossary tab for help.
+
+**Upload data from**
+
+```{r}
+radioButtons(
+  "choice",
+  label = "Either:",
+  choices = list("Wilderlab API" = "wilderlab", 
+                 "Local drive" = "local"),
+  selected = "wilderlab"
+)
+
+
+```
+
+<br/>
+
+
+**Select area**
+
+
+* Select an area either square, circular, or a polygon area
+* The TICI data will extracted for your selected area.
+
+*Note: Inclusion of a large number of sampling locations may impact the readability of graphs*
+
+<br/>
+
+
+**Aggregate points **
+
+
+```{r}
+sliderInput("precision", label = "Max distance (metres):", min = 1, 
+        max = 100, value = 10, step = 1,  ticks = FALSE)
+```
+
+<br/>
+
+**Flag position**
+
+Enter sample coordinates to add marker (return to 'select area' to view).
+
+```{r}
+numericInput("lat", label ="Latitude", value = NULL)
+numericInput("long", label = "Longitude", value = NULL)
+
+point <- reactive({
+  
+  point <- data.frame(long = input$long, lat = input$lat, Place = "User point")
+  point <- st_as_sf(point, coords = c("long", "lat"), crs = 4326)
+  point
+  
+})
+
+```
+
+<br/>
+
+**Download filtered data**
+
+```{r, echo = FALSE}
+# Create placeholder for the download button
+uiOutput("downloadUI")
+
+# download data button
+output$downloadUI <- renderUI( {
+  downloadButton("downBtn", "Download as csv file", style = "width:100%;")
+})
+
+output$downBtn <- downloadHandler(
+  filename = function() {'Name this file.csv'},
+  content = function(file) {
+    write.csv(download.table(), file, row.names = FALSE)
+  }
+)
+```
+
+
+
+```{r}
+# reactive data from maps
+
+sp.file <- eventReactive(input$mymap_draw_new_feature,{
+  
+    feature <- input$mymap_draw_new_feature
+    sp.file <-  geojson_sf(to_json(feature, unbox = TRUE)) %>%
+      st_as_sf()
+    sp.file
+  
+  })
+
+```
+
+```{r}
+# API subroutine
+
+APIs <-  read_excel("Other data/API keys.xlsx")
+
+tici.df <- reactive ({
+  if (input$choice == "wilderlab") {
+    
+    samples <- NULL
+    
+    for (i in 1:nrow(APIs)) {
+      samples[[i]] <-
+        get_wilderdata(
+          "samples",
+          key = APIs$key[i],
+          secret = APIs$secret[i],
+          xapikey = APIs$xapikey[i]
+        )
+      
+    }
+    
+    
+    tici.df <- bind_rows(samples)
+    
+    # remove zeros
+    tici.df$TICI <- ifelse(tici.df$TICI  == 0, NA, tici.df$TICI)
+    tici.df <- tici.df %>% drop_na(TICI)
+    
+    
+    # make tici rating categories
+    tici.df$TICIRating <-
+      cut(tici.df$TICI, breaks = c(10, 80, 90, 100, 110, 120, 200))
+    
+    
+    # rename levels
+    levels(tici.df$TICIRating) <-
+      c("Very poor",
+        "Poor",
+        "Average",
+        "Good",
+        "Excellent",
+        "Pristine")
+    
+    # make tici reliability categories
+    tici.df$TICIReliability <-
+      cut(tici.df$TICINoSeqs, breaks = c(0, 150, 250, 350, Inf))
+    
+    
+    # rename levels
+    levels(tici.df$TICIReliability) <-
+      c("Low",
+        "Average",
+        "High",
+        "Very high")
+    
+    # make into sf
+    tici.df <- tici.df %>%
+      st_as_sf(coords = c("Longitude", "Latitude"),
+               crs = 4326)
+    
+    tici.df$CollectionDate <- ymd(tici.df$CollectionDate)
+    
+    # remove zeros
+    tici.df$TICI <- ifelse(tici.df$TICI  == 0, NA, tici.df$TICI)
+    tici.df <- tici.df %>% drop_na(TICI)
+    
+    tici.df
+    
+    
+    tici.df
+    
+    
+  } else {
+    # get file list
+    file.list <-
+      list.files("Wilderlab_full_results", pattern = '*.xlsx')
+    
+    # read list
+    dir <- paste0("Wilderlab_full_results", "/", file.list)
+    
+    # read all files
+    tici.list <- lapply(dir, function(x)
+      read_excel(x, sheet = "indices"))
+    
+    # change all data to character
+    tici.indices <-
+      bind_rows(lapply(tici.list , function(x) {
+        mutate_all(x, as.character)
+      }))
+    
+    # change certain columns back to numeric
+    tici.indices$UID <- as.numeric(tici.indices$UID)
+    tici.indices$TICI_value <-
+      round(as.numeric(tici.indices$TICI_value), 2)
+    tici.indices$TICI_quantile <-
+      as.numeric(tici.indices$TICI_quantile)
+    tici.indices$TICI_nseqs <- as.numeric(tici.indices$TICI_nseqs)
+    
+    ## extract metadata
+    tici.meta <-
+      lapply(dir, function(x)
+        read_excel(x, sheet = "metadata"))
+    
+    # make extraction function
+    
+    extract.meta <- function(x) {
+      
+      ref <- which(x[,1]== "UID") 
+      
+      metadata <- x[ref:nrow(x),]
+      colnames(metadata) <- metadata[1,]
+      metadata <- data.frame(metadata[2:nrow(metadata),])
+      
+    }
+    
+    # apply over all workbooks
+    tici.meta.list <- lapply(tici.meta, function(x)
+      extract.meta(x))
+    
+    
+    # change to character
+    tici.meta.data <-
+      bind_rows(lapply(tici.meta.list, function(x) {
+        mutate_all(x, as.character)
+      }))
+    
+    ## control mixed dates
+    
+    # copy excel dates to new column
+    tici.meta.data$otherDate <-
+      ifelse(
+        str_count(tici.meta.data$CollectionDate) != 10,
+        tici.meta.data$CollectionDate,
+        ""
+      )
+    tici.meta.data$otherDate <- as.numeric(tici.meta.data$otherDate)
+    
+    # change to normal date
+    tici.meta.data$otherDate <-
+      as.Date(tici.meta.data$otherDate, origin = "1899-12-30")
+    
+    # remove excel dates from original
+    tici.meta.data$CollectionDate <-
+      ifelse(
+        str_count(tici.meta.data$CollectionDate) == 10,
+        tici.meta.data$CollectionDate,
+        ""
+      )
+    
+    # change to date
+    tici.meta.data$CollectionDate <-
+      ymd(tici.meta.data$CollectionDate)
+    
+    # coalesce
+    tici.meta.data$CollectionDate <-
+      coalesce(tici.meta.data$CollectionDate, tici.meta.data$otherDate)
+    
+    # change back to numeric
+    tici.meta.data$UID <- as.numeric(tici.meta.data$UID)
+    tici.meta.data$Latitude <- as.numeric(tici.meta.data$Latitude)
+    tici.meta.data$Longitude <- as.numeric(tici.meta.data$Longitude)
+    
+    # join
+    tici.df <- left_join(tici.meta.data, tici.indices, by = "UID")
+    
+    # change names to match API
+    tici.df <- tici.df %>% rename(
+      "TICI" = "TICI_value",
+      "TICINoSeqs" = "TICI_nseqs",
+      "TICIQuantile" = "TICI_quantile",
+      "TICIVersion"  = "TICI_version",
+      "TICIRating"  = "TICI_rating",
+      "TICIReliability" = "TICI_reliability"
+    )
+    
+    # make into sf
+    tici.df <- tici.df %>%
+      st_as_sf(coords = c("Longitude", "Latitude"),
+               crs = 4326)
+    
+    # remove zeros
+    tici.df$TICI <- ifelse(tici.df$TICI  == 0, NA, tici.df$TICI)
+    tici.df <- tici.df %>% drop_na(TICI)
+    
+    tici.df
+    
+  }
+  
+})
+
+```
+
+
+
+```{r}
+# summary
+tici.sum <- reactive ({
+  
+  tici.sum <- tici.df() %>%
+  group_by(geometry, CollectionDate) %>%
+  summarise(
+    average = mean(TICI, rm.na = TRUE),
+    range = paste(round(min(TICI), 2), "–", round(max(TICI), 2)),
+    no_samples = n(),
+    no_dates = n_distinct(CollectionDate)
+  )
+
+  tici.sum$average <- round(tici.sum$average, 2)
+
+
+
+# make tici categories
+  tici.sum$rating <-
+    cut(tici.sum$average, breaks = c(10, 80, 90, 100, 110, 120, 200))
+
+
+# rename levels
+  levels(tici.sum$rating) <-
+    c("Very poor", "Poor", "Average", "Good", "Excellent", "Pristine")
+
+  tici.sum$rating <- fct_rev(tici.sum$rating)
+  
+  tici.sum
+  
+})
+
+```
+
+
+```{r}
+# site locations change to spatial
+tici.locations <- reactive({
+  
+  sf::as_Spatial(tici.sum())
+  
+})
+```
+
+
+Row {.tabset .tabset-fade}
+-------------------------------------
+
+
+### Select area
+
+```{r}
+
+# visualise site locations
+# Create a continuous palette function
+
+
+leafletOutput("mymap", height = 800)
+
+my.leaflet <- reactive({
+  
+  palPwr <-
+  colorFactor(c("red", "purple", "lightblue",  "white", "yellow", "orange"),
+              domain = tici.locations()$rating)
+
+  
+  leaflet(options = leafletOptions(worldCopyJump = TRUE)) %>%
+    
+    # add base maps
+    # addProviderTiles("Esri.OceanBasemap", group = "Ocean Basemap") %>%
+    addProviderTiles("OpenStreetMap",
+                     # give the layer a name
+                     group = "Open Street Map") %>%
+    addProviderTiles("Esri.WorldImagery",
+                     # give the layer a name
+                     group = "World") %>%
+    addProviderTiles("Stamen.Terrain",
+                     # give the layer a name
+                     group = "Terrain") %>%
+    
+    # set zoom and position
+    setView(lng = 169,
+            lat = -45.9,
+            zoom = 8) %>%
+    
+    # add drawing tools
+    addDrawToolbar(
+      polylineOptions = FALSE,
+      markerOptions = FALSE,
+      circleMarkerOptions = FALSE,
+      singleFeature = TRUE,
+      
+      
+      targetGroup = 'draw',
+      editOptions = editToolbarOptions(edit = FALSE, remove = TRUE)
+    )  %>%
+    
+    # add layers
+    addLayersControl(overlayGroups = c('draw'),
+                     options =
+                       layersControlOptions(collapsed = FALSE)) %>%
+    
+    addLayersControl(
+      baseGroups = c("World", "Terrain", "Open Street Map"),
+      # position it on the topleft
+      position = "topleft"
+    ) %>%
+    
+    addPolygons(data = NZ,
+                color = "white",
+                fillOpacity = 0.001,
+                weight = 1) %>%
+    
+    addCircleMarkers(
+      data = tici.locations() ,
+      radius = 9,
+      color = ~ palPwr(rating),
+      popup = paste(
+        "Date:",
+        tici.locations()$CollectionDate,
+        "<br>",
+        "TICI average:",
+        tici.locations()$average,
+        "<br>",
+        "TICI range:",
+        tici.locations()$range,
+        "<br>",
+        "No of samples:",
+        tici.locations()$no_samples,
+        "<br>"
+      )
+    ) %>%
+    
+    addLegend(
+      data = tici.locations() ,
+      position = "topright",
+      pal = palPwr,
+      values = tici.locations()$rating,
+      title = "Water quality"
+    ) %>%
+     addMeasure(
+      position = "bottomleft",
+      primaryLengthUnit = "kilometers",
+      primaryAreaUnit = "ha",
+      activeColor = "lightyellow",
+      completedColor = "orange"
+    ) %>%
+    addScaleBar(position = "topright",
+              options = scaleBarOptions(imperial = FALSE)) %>%
+    addMiniMap()
+ 
+
+})
+
+
+output$mymap <- renderLeaflet({
+  if (is.numeric(input$long) != TRUE |
+      is.numeric(input$lat) != TRUE) {
+    my.leaflet()
+    
+  } else {
+    my.leaflet() %>%
+      addMarkers(data = point())
+  } 
+  
+  
+})
+
+      
+```
+
+
+### Trend
+
+
+```{r}
+sp.file <- eventReactive(input$mymap_draw_new_feature,{
+  
+    feature <- input$mymap_draw_new_feature
+    sp.file <-  geojson_sf(to_json(feature, unbox = TRUE)) %>%
+      st_as_sf()
+    
+    sp.file
+     
+  })
+```
+
+
+
+```{r}
+my.selection <- reactive({
+  
+    if (sp.file()$feature_type == "circle") {
+      
+      my.circle <- st_buffer(sp.file(), sp.file()$radius) 
+      
+     tici.df() %>%
+      st_as_sf(coords = c("longitude", "latitude"),
+               crs = 4326) %>%
+      st_intersection(my.circle) 
+      
+    } else {
+      
+      tici.df() %>%
+      st_as_sf(coords = c("longitude", "latitude"),
+               crs = 4326) %>%
+      st_intersection(sp.file())
+      
+    }
+
+})
+
+```
+
+```{r}
+# intersection
+my.graph.data <-
+  
+  reactive({
+    
+    # get intersection
+    my.data <- my.selection()
+    
+    # change to NZ map grid
+    my.data <- my.data %>% st_transform(crs = 2193)
+    
+    # relevel tici rating
+    my.data$TICIRating <- factor(
+      my.data$TICIRating,
+      levels = c(
+        "Pristine",
+        "Excellent",
+        "Good",
+        "Average",
+        "Poor",
+        "Very poor"
+      )
+    )
+    
+    
+    # make group
+    
+    my.data$group <-
+      group_points(points = my.data, distance = input$precision)
+    
+    # get location of centroids
+    centroids <- my.data %>% group_by(group) %>%
+      summarise(st_union(geometry)) %>%
+      st_centroid() 
+    
+    # add centriods and group
+     centroids <- cbind(centroids, st_coordinates(centroids)) %>% as.data.frame()
+
+    # attach to points
+    my.data <- left_join(my.data, centroids, by = "group")
+    my.data$Location <-
+      paste(round(my.data$X, 0), "E", round(my.data$Y, 0), "N")
+    my.data$geometry <- NULL
+    my.data$st_union.geometry. <- NULL
+    
+    # make lat long coordinates
+    my.lat.long <- st_as_sf(my.data,                         
+               coords = c("X", "Y"),
+               crs = 2193) %>% 
+      st_transform(crs = 4326) %>% 
+      st_coordinates()
+    
+    # remove them to prevent duplicated names
+    my.data$X <- NULL
+    my.data$Y <- NULL
+    
+    #bind
+    my.data <- cbind(my.data, my.lat.long)
+    
+    # add to Location
+    # my.data$Location <- paste( my.data$Location, my.data$X, my.data$Y)
+    
+    my.data$`Lat-Long` <- as.character(paste(round(my.data$Y, 5), round(my.data$X, 5)))
+    my.data
+
+  })
+
+
+my.plot <- reactive ({
+  
+  # my viridis palette padded to provide more variability in middle
+#  pal <-   rev(c("#0D0887FF", viridis(n=6), "#F0F921FF"))
+  pal <-   c(viridis(n=6))
+
+  my.plot <-  ggplot(
+    my.graph.data(),
+    aes(
+      x = CollectionDate,
+      y = TICI,
+      colour = TICIRating,
+      text = paste(
+        "Collection date:",  CollectionDate,
+        "\nClient ID:", ClientSampleID,
+        "\nTICI score",  TICI,
+        "\nTICI rating",  TICIRating,
+        "\nTICI reliability:",TICIReliability,
+        "\nLatitude:",round(Y, 5),
+        "\nLongitude:", round(X, 5)
+
+      ),
+      group = `Lat-Long`
+    )
+  ) +
+    theme_bw() +
+   #  scale_colour_graidentn(colours = pal, 
+   #                        breaks = c(70, 80, 90, 100, 110, 120),
+   #                        labels = c("70 - very poor",
+   #                                   "80 - poor", "90 - average",
+   #                                    "100 - good",
+   #                                    "110 - excellent",
+   #                                    "120 - pristine"),
+   #                        limits = c(50, 140)
+   #                        ) 
+ scale_colour_manual(values = pal, drop = FALSE) +
+    
+    geom_smooth(method = "lm",
+                se = FALSE,
+                colour = "grey") +
+    geom_point(size = 3,
+               shape = 20,
+               alpha = 0.7) +
+    
+    facet_wrap(~ `Lat-Long`, labeller = label_wrap_gen(multi_line = TRUE)) +
+    xlab("Collection date") +
+    ylab("TICI score") +
+    theme(axis.title.y = element_text(
+      size = 16,
+      margin = margin(r = 10)
+    )) +
+    theme(axis.title.x = element_text(
+      size = 16,
+      margin = margin(t = 10)
+    )) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
+    theme(plot.margin = margin(1, 1, 1.5, 1.2, "cm")) +
+    labs(colour = "TICI rating\n") +
+    ggtitle(paste("Locations given in lat long based on a", 
+    input$precision, "m aggregation"))+
+    scale_x_date(date_labels = "%d %b %Y")
+  
+  # turn off hover info for geom_line
+  my.plot <- ggplotly(my.plot, tooltip = "text") %>%   
+    config(displaylogo = FALSE, collaborate = FALSE,
+         modeBarButtonsToRemove = c(
+           'sendDataToCloud', 
+           'autoScale2d', 
+           #'resetScale2d', 
+           'toggleSpikelines',
+           'hoverClosestCartesian', 
+           'hoverCompareCartesian',
+           #'zoom2d',
+           'pan2d',
+           'select2d',
+           'lasso2d',
+           'zoomIn2d',
+           'zoomOut2d'
+         ))
+  
+  my.plot
+  
+})
+
+
+renderPlotly({
+  withProgress(message = 'Making plot', value = 0, {
+    incProgress(1 / 3)
+    
+    Sys.sleep(0.1)
+    
+    my.plot()
+    
+    
+  })
+  
+})
+```
+
+
+### Data extract
+
+```{r}
+
+  table.data <-reactive({
+  
+   table.data <- my.graph.data()[, c("ClientSampleID",
+                      "Lat-Long",
+                       # "CollectedBy",
+                       "CollectionDate", 
+                       "TICI" ,
+                       "TICIRating",
+                       "TICIReliability",
+                       # "VolumeFilteredML",
+                       # "ClientNotes" ,
+                       # "UID", 
+                       "TICIVersion")]
+   
+   table.data <- table.data %>% 
+     rename(`Client sample ID` = ClientSampleID,
+            `Collection date` = CollectionDate, 
+            `TICI score` = TICI,
+            `TICI rating` = TICIRating,
+            `TICI reliability` = TICIReliability,
+            `TICI version` = TICIVersion)
+   
+   table.data$radius <- NULL
+   
+   table.data
+    
+  })
+  
+
+  
+ renderDataTable ({
+   
+   datatable(
+    table.data() ,
+    rownames = FALSE,
+    options = list(
+      filter = "none",
+      searching = FALSE,
+      pageLength = nrow(table.data()),
+      scrollY = "500px"
+    )
+  )
+  
+  
+}) 
+  
+```
+
+```{r}
+# make download table
+
+ download.table <- reactive({
+  
+  download.table <- my.graph.data() %>% 
+    select(-c(X_leaflet_id, 
+           feature_type,
+           group,
+           Location))
+  
+  download.table$radius <- NULL 
+  
+  download.table
+  
+})
+
+```
+
+
+
+### API check
+
+```{r}
+renderUI({
+  
+  exists <- file.exists("Other data/API keys.xlsx")
+  
+  check1 <- paste(
+    "Does API file exist in expected location: ",
+    exists)
+  
+  check2 <- paste("Names of organisations contributing API keys: ",
+    paste(unique(APIs$`Shared APIs`), collapse = ", "))
+  
+  check3 <- paste("Number of APIs: ", nrow(APIs))
+  
+  check4 <- paste("Is API / Are APIs selected: ", input$choice == "wilderlab")
+    
+  HTML(paste(check1, check2, check3, check4, sep="<br/>"))
+  
+})
+
+
+```
+
+
+### Instructions & Glossary
+
+**How it works**
+
+* This dashboard automatically reads from either:
+  1. from the Wilderlab API. Your organisation's API details must be stored as an excel spread sheet and placed in the API keys folder.
+  1. a folder within the project labeled "Wilderlab_full_results". Wilderlab results (excel worksheets) can simply be copied and dropped into the folder. Note that manual modification of the worksheets risks making them unreadable.
+  
+<br/>
+
+**Tabs and interactivity**
+
+* **Select area tab:** The colour of the circle point represents the average TICI value for the GPS location across time. You must select the points you want to include for further analysis. You can either use either a circle, polygon, or rectangle tool. If using the polygon tool you must complete the polygon by returning to and clicking on the starting point. At this point your spatial selection had been completed. For other tools the selection is completed as soon as the mouse is released. Only one spatial selection can be processed at a time. Background layers can be changed using the layer icon.
+
+* **Aggregate points:** This widget allows the user to aggregate locations within a certain distance of each other. Locations are changed to the NZ Transverse Mercator grid temporarily to facilitate better distance measurement before turned into Lat-Long. The new Lat-Long location is the centroid of the points within the aggregation distance.   Any given Lat-Long positions can be manually entered into the **Flag Position** input boxes, the point will be then be revealed as a blue marker on the *Select area* tab.
+
+* **Trend tab:** This tab allows the user to check for changes over time at the same (or nearby sampling locations). Lines of best fit on the graphs are estimated via linear regression.
+
+   * To download the graph hover over it. This will reveal icons in the right hand corner. 
+   * Click the camera icon to save. 
+   * Click the magnifying glass icon to zoom into a selected set points. 
+   * Click the home icon to restore initial axes settings (e.g. after a zoom).
+   * Supplementary data specific to a particular point will be revealed if you hover the mouse over the point.
+
+\newline
+
+* **Data extract tab:** a simplified version of the data within the selected area is shown on screen for quick exploratory work.
+
+   * By clicking on the arrows at the top of each column you can sort the data set by the specific variable.
+   * The data from the selected area can be downloaded as a csv file by clicking on the **Download as csv file**. The data fields will emulate the Wilderlab API format and contain more information that present in the onscreen table.
+   
+<br/>
+
+**Aggregate points**
+
+* Small differences in GPS readings will cause re-sampled points to be treated as entirely different locations. We can resolve this by aggregating readings through stipulating the maximum distance between re-sampled points. This will ensure that minor discrepancies in sampling location do not result in the creation of new sites.
+
+<br/>
+   
+**R compatibility**
+
+The dashboard was constructed under R version 4.2.1 and is only guaranteed for that version. The final project will be available from github and be licensed under a permissive MIT license. Note the base maps used in the dashboard are controlled by a 3rd party and can be discontinued by them without notice. The availability of different maps can be checked [here](https://leaflet-extras.github.io/leaflet-providers/preview/).
+
+<br/>
+
+**Glossary**
+
+* **API** = *Application programming interface*
+
+  * An application programming interface is a set of protocols (defined by code) that enable two software programs to communicate. Access to an API is generally controlled by keys and passwords.
+
+  
+\newline
+
+* **TICI** = *Taxon-Independent Community Index*
+
+  * This index was developed by Wilderlab to condense a large amount of DNA sequence information into a single metric for better understanding stream health. The TICI works in a similar way to the macroinvertebrate community index. However, the TICI uses eDNA sequences from a wide range of organisms rather than just invertebrate taxa. TICI values are bound between 0 and 200. 
+
+  * For more information please visit the [Wilderlab website](https://www.wilderlab.co.nz/) or their [TICI specific page](https://www.wilderlab.co.nz/tici) (note that the existence of these webpages in the future cannot be guaranteed).
+
+
+
+
