@@ -1210,7 +1210,7 @@ output$down_summary_Btn <- downloadHandler(
 
 There will likely be many occasions in which the eDNA records don't match the NZTCS due to differences in the way that the species names are recorded.
 
-* Choose the species you want to reallocate from the list below.
+* Choose the species you want to assign a classification from the list below.
 * Choose the category and status (note: familiarity with NZTCS is assumed)
 * Click *Confirm selection* to build table
 * Multiple entries are permissible (rows can be removed too)
@@ -1873,7 +1873,7 @@ selection <- reactive({
 
 renderPlotly({
 
-  ggplot(selection(), aes(x = name ,
+my.plot <-  ggplot(selection(), aes(x = name ,
       y = instances,
       fill = `average sequence count`,
       text = paste("range:", range))) +
@@ -1882,7 +1882,7 @@ renderPlotly({
     scale_fill_viridis(option = "plasma") +
     xlab("") +
     ylab("Instances\n") +
-    ggtitle("Taxon present in spatial selection") +
+    ggtitle("Taxa present in spatial selection") +
     theme(axis.title = element_text(size = 16, colour = "grey20")) +
     theme(axis.text.x = element_text(
       size = 12,
@@ -1891,6 +1891,26 @@ renderPlotly({
       hjust = 1,
       vjust = 0.5
     ))
+  
+    # turn off hover info for geom_line
+  my.plot <- ggplotly(my.plot, tooltip = "text") %>%   
+    config(displaylogo = FALSE, collaborate = FALSE,
+         modeBarButtonsToRemove = c(
+           'sendDataToCloud', 
+           'autoScale2d', 
+           #'resetScale2d', 
+           'toggleSpikelines',
+           'hoverClosestCartesian', 
+           'hoverCompareCartesian',
+           #'zoom2d',
+           'pan2d',
+           'select2d',
+           'lasso2d',
+           'zoomIn2d',
+           'zoomOut2d'
+         ))
+  
+  my.plot
   
 })
 ```
@@ -2162,7 +2182,7 @@ radioButtons(
     "Single species point" = "point",
     "Single species polyline" = "polyline",
     "Single species polygon" = "polygon",
-    "Catchment polygon" = "catchment",
+    "Catchment polygons" = "catchment",
     "Non migratory freshwater fish distribution" = "nmfish"
   ),
   selected = "nmfish"
@@ -2337,7 +2357,7 @@ renderUI({
     condition = "input.spatialfile != 'catchment'",
     
     numericInput("aberrant", 
-                 label = HTML("<b>Distance threshold for aberrant result, (km) </b>")
+                 label = HTML("<b>Distance threshold for aberrant result (km) </b>")
                  , value = 0.250)
   )
   
@@ -2519,7 +2539,8 @@ my.map <- eventReactive(input$submit,
                                   bringToFront = TRUE
                                 ),
                                 popup = my.catchment[[input$catchment.var]]
-                              )
+                              ) %>%
+                              addMiniMap()
                             
                             
                           } else if (input$spatialfile == "polygon") {
