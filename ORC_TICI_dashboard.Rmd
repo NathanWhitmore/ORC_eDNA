@@ -852,9 +852,9 @@ renderUI({
   check2 <- paste("Names of organisations contributing API keys: ",
     paste(unique(APIs$`Shared APIs`), collapse = ", "))
   
-  check3 <- paste("Number of APIs: ", nrow(APIs))
+  check3 <- paste("Number of API keys: ", nrow(APIs))
   
-  check4 <- paste("Is API / Are APIs selected: ", input$choice == "wilderlab")
+  check4 <- paste("Is the API option selected: ", input$choice == "wilderlab")
     
   HTML(paste(check1, check2, check3, check4, sep="<br/>"))
   
@@ -869,7 +869,7 @@ renderUI({
 **How it works**
 
 * This dashboard automatically reads from either:
-  1. from the Wilderlab API. Your organisation's API details must be stored as an excel spread sheet and placed in the API keys folder.
+  1. from the Wilderlab API. Your organisation's API details must be stored as an excel spread sheet and placed in the API keys folder within the Other data folder.
   1. a folder within the project labeled "Wilderlab_full_results". Wilderlab results (excel worksheets) can simply be copied and dropped into the folder. Note that manual modification of the worksheets risks making them unreadable.
   
 <br/>

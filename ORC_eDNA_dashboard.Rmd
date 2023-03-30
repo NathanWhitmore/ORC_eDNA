@@ -62,11 +62,14 @@ radioButtons(
 
 ```{r}
 
+renv::restore()
+
 invisible(if(!("remotes" %in% list.files(.libPaths()))) install.packages("remotes"))
 invisible(if(!("pacman" %in% list.files(.libPaths()))) install.packages("pacman"))
 invisible(if(!("wilderlab" %in% list.files(.libPaths()))) remotes::install_github("wilderlabnz/wilderlab"))
 
 pacman::p_load("wilderlab",
+               "renv",
                "insect",
                "sf",
                "tidyverse",
@@ -86,6 +89,7 @@ pacman::p_load("wilderlab",
                "stringr",
                "janitor")
 
+library(renv)
 library(wilderlab)
 library(insect)
 library(sf)
