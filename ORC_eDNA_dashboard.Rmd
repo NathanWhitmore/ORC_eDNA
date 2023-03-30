@@ -62,8 +62,6 @@ radioButtons(
 
 ```{r}
 
-renv::restore()
-
 invisible(if(!("remotes" %in% list.files(.libPaths()))) install.packages("remotes"))
 invisible(if(!("pacman" %in% list.files(.libPaths()))) install.packages("pacman"))
 invisible(if(!("wilderlab" %in% list.files(.libPaths()))) remotes::install_github("wilderlabnz/wilderlab"))
@@ -89,7 +87,6 @@ pacman::p_load("wilderlab",
                "stringr",
                "janitor")
 
-library(renv)
 library(wilderlab)
 library(insect)
 library(sf)
@@ -2919,3 +2916,63 @@ Instructions
 
 Column {.sidebar}
 ---------------------
+
+This is a set of basic information required for operation of the dashboard once it is running.
+
+The full manual *ORC TICI and ORC eDNA dashboard manual.docx:*can be found in the project folder
+
+
+Row {.tabset .tabset-fade}
+-------------------------------------
+
+### Explanation of folders
+
+**Other data:** this folder should contain two files:
+
+1. **API keys.xlsx:** a simple spread sheet containing the name of the organisation, its key, secret and xapikey. This information is available from Wilderlab. Multiple rows can be listed. Do not share the contents of this file.  The keys from other organisations can be used if there is a data sharing agreement. This information allows the dashboard to link to the Wilderlab API (i.e. database) using your organisations credentials (compulsory).
+
+1. **NZTCS.xlsx:** a full extract of all the NZTCS information available from the official website: https://nztcs.org.nz/assessment-search  which can be retrieved by leaving all the search fields blank and click the green “Export” button (compulsory).
+
+**Regional boundaries:** this ia an ESRI shapefile set containing all of the NZ regional council boundaries (compulsory).
+
+**renv:** this is file containing all of the packages for the dashboard. Do not tamper with this.
+
+**Spatial selection:** this is a folder containing the ESRI shape files for a user- prescribed polygon for use in the *By spatial* page (contents optional)
+
+**Wilderlab_full_results:** this a collection of all the worksheets provided by Wilderlab. This will be read if the upload from local drive option is chosen.   Within the folder is another folder called Storage. Anything placed into the storage folder will not be read. By moving Wilderlab files in and out of storage the user can control the data being read (e.g. you may only want to investigate one set of monitoring occasions rather than all of them. These files are optional (but required if you are reading from a local drive).
+
+**Your Catchment Polygons:** your ESRI shapefile set of your catchment polygons required for  *Catchment polygons* option in *Testing Existing Knowledge* page (contents optional).
+
+**Your Non-Migratory Freshwater Fish Distribution:** the ESRI shapefile set of *Non migratory freshwater fish distribution* option in *Testing Existing Knowledge* page (contents optional).
+
+**Your Species Points:** your ESRI shapefile set of your species points required for the  *Single species points* option in *Testing Existing Knowledge* page (contents optional).
+
+**Your Species Polygons:** your ESRI shapefile set of your species polygons required for *Single species polygon* option in *Testing Existing Knowledge* page (contents optional).
+
+**Your Species Polylines:** your ESRI shapefile set of your species polylines required for the *Single species polyline* option in *Testing Existing Knowledge* page (contents optional).
+
+
+**Other files**
+There are a number of other important files. Depending on how you have your computer configured you may not be able to see the file extensions. I strongly recommend you set your computer to view file extensions (this will prevent human error associated with trying to open an incorrect file type).
+
+* *LICENSE:* this has the exact wording of the MIT license.
+* *ORC TICI and ORC eDNA dashboard manual.docx:* the manual for the dashboards.
+* *ORC_eDNA .proj file:* the RStudio project.
+* *ORC_eDNA_dashboard.Rmd:* the eDNA dashboard.
+* *ORC_TICI_dashboard.Rmd:* the TICI dashboard.
+* *Renv.lock:* the repository of package versions for renv.
+
+Any other files can be safely ignored.
+
+
+### Map widgets
+Depending on the map there may be a variety of additional map tools these include:
+
+*	**plus / minus**  widgets: for controlling zoom.
+
+*	A **layer widget** for controlling the base map. Note: the colour scheme has been optimised for the satellite base map and doesn’t change with other base maps.
+
+*	The **set square widget** (bottom left): this allows the user to measure distances on-the-fly.
+
+* If using the ‘draw now’ option in the *By spatial* page a spatial selection can be drawn by using the **circle, polygon, or square drawing tools**. Only one selection can be active at any given time. A selection can also be removed using the trash function. If using the polygon tool, you will need to complete the polygon by clicking the first point. Note the ‘save’ option on the Trash icon is non-functional.  
+
