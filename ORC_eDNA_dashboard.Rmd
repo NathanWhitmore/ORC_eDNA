@@ -2919,7 +2919,7 @@ Column {.sidebar}
 
 This is a set of basic information required for operation of the dashboard once it is running.
 
-The full manual *ORC TICI and ORC eDNA dashboard manual.docx:*can be found in the project folder
+The full manual *ORC TICI and ORC eDNA dashboard manual.docx* can be found in the project folder.
 
 
 Row {.tabset .tabset-fade}
