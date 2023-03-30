@@ -2976,3 +2976,8 @@ Depending on the map there may be a variety of additional map tools these includ
 
 * If using the ‘draw now’ option in the *By spatial* page a spatial selection can be drawn by using the **circle, polygon, or square drawing tools**. Only one selection can be active at any given time. A selection can also be removed using the trash function. If using the polygon tool, you will need to complete the polygon by clicking the first point. Note the ‘save’ option on the Trash icon is non-functional.  
 
+Note the base maps used in the dashboard are controlled by a 3rd party and can be discontinued by them without notice. The availability of different maps can be checked [here](https://leaflet-extras.github.io/leaflet-providers/preview/).
+
+### R compatibility
+The dashboard was constructed under R version 4.2.1 and is only guaranteed for that version. The final project is licensed under a permissive MIT license. 
+

@@ -905,7 +905,9 @@ renderUI({
    
 **R compatibility**
 
-The dashboard was constructed under R version 4.2.1 and is only guaranteed for that version. The final project will be available from github and be licensed under a permissive MIT license. Note the base maps used in the dashboard are controlled by a 3rd party and can be discontinued by them without notice. The availability of different maps can be checked [here](https://leaflet-extras.github.io/leaflet-providers/preview/).
+The dashboard was constructed under R version 4.2.1 and is only guaranteed for that version. The latest version of the project code is available from github [here](https://github.com/NathanWhitmore/ORC_eDNA) and is licensed under a permissive MIT license. 
+
+Note: the base maps used in the dashboard are controlled by a 3rd party and can be discontinued by them without notice. The availability of different maps can be checked [here](https://leaflet-extras.github.io/leaflet-providers/preview/).
 
 <br/>
 
