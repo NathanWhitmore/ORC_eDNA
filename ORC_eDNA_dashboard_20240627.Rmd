@@ -3174,6 +3174,34 @@ Note the base maps used in the dashboard are controlled by a 3rd party and can b
 ### R compatibility
 The dashboard was constructed under R version 4.2.1 and is only guaranteed for that version. The latest version of the project code is available from github [here](https://github.com/NathanWhitmore/ORC_eDNA) and is licensed under a permissive MIT license. 
 
+Videos
+=====================================
+
+
+Column {.sidebar}
+---------------------
+
+**Help video**
+
+To render the video locally you may have to click *Open in Browser* on the top lefthand side of this window. Alternatively, please click the links below:
+ * [sample location](https://www.loom.com/share/14acb4efd50e4633a67e9b8c990f5081?sid=c238d4a3-a98e-4187-85b2-046efa65119e)
+ * [taxonomy](https://www.loom.com/share/849c039eaaff459d86e4797880518c0b?sid=fa804f18-6d6d-426b-807c-eb685f9e32dc)
+ * [threat status](https://www.loom.com/share/7e9928c14f844618ae31483db9035a50?sid=1ba3c474-9382-42bb-a1db-e0b619f93d6d)
+ * [cluster](https://www.loom.com/share/20e805bb0382489cb5d5677f40e768cb?sid=fff17df5-421c-42e1-8d7a-e10e60293454)
+ * [knowledge](https://www.loom.com/share/37387f5d94c44cbf87e12bb7739c33db?sid=c4ef3ca6-ae2e-4323-af71-01d2f719adc9)
+ 
+
+
+
+<br/>
+
+**Acknowledgements**
+
+The code for this dashboard was written by Nathan Whitmore is freely available for reuse and modification via an [MIT license](https://choosealicense.com/licenses/mit/). The source code can be found under the under the '</> Source Code' tab or via [GitHub](https://github.com/NathanWhitmore/ORC_eDNA).  Dashboard creation was funded by the Otago Regional Council. Special thanks go to Scott Jarvie and Ciaran Campbell for instigating this project.
+
+
+Row {.tabset .tabset-fade}
+-------------------------------------
 
 ### Video: sample location
 <div style="position: relative; padding-bottom: 56.25%; height: 0;"><iframe src="https://www.loom.com/embed/14acb4efd50e4633a67e9b8c990f5081?sid=8e317955-ea81-474c-b284-b38053005ec9" frameborder="0" webkitallowfullscreen mozallowfullscreen allowfullscreen style="position: absolute; top: 0; left: 0; width: 80%; height: 80%;"></iframe></div>
@@ -3191,4 +3219,5 @@ The dashboard was constructed under R version 4.2.1 and is only guaranteed for t
 <div style="position: relative; padding-bottom: 56.25%; height: 0;"><iframe src="https://www.loom.com/embed/20e805bb0382489cb5d5677f40e768cb?sid=9005aeb3-8291-4afd-82b9-a81004465552" frameborder="0" webkitallowfullscreen mozallowfullscreen allowfullscreen style="position: absolute; top: 0; left: 0; width: 80%; height: 80%;"></iframe></div>
 
 ### Video: knowledge
+<div style="position: relative; padding-bottom: 56.25%; height: 0;"><iframe src="https://www.loom.com/embed/37387f5d94c44cbf87e12bb7739c33db?sid=51f50f2f-952f-46b8-99a1-5b292342be6f" frameborder="0" webkitallowfullscreen mozallowfullscreen allowfullscreen style="position: absolute; top: 0; left: 0; width: 80%; height: 80%;"></iframe></div>
 
